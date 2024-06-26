@@ -54,13 +54,14 @@ exports.login = async (req, res, next) => {
             token: "JWT " + token,
             user: {
               id: user._id,
-              name: user.name,
+              firstName: user.firstName,
+              lastName: user.lastName,
               corpName: user.corpName,
               email: user.email,
               premium: user.premium,
               role: user.role,
-              active: user.active,
-            },
+              active: user.active
+            }
           });
         } else {
           res.status(400).json({
