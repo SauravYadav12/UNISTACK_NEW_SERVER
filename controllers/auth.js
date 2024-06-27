@@ -12,6 +12,7 @@ exports.signup = (req, res, next) => {
       email: req.body.email,
       password: req.body.password,
       corpName: req.body.corpName || "Unicodez",
+      gender: req.body.gender
     });
 
     User.addUser(newUser, (err, user) => {
@@ -60,7 +61,8 @@ exports.login = async (req, res, next) => {
               email: user.email,
               premium: user.premium,
               role: user.role,
-              active: user.active
+              active: user.active,
+              gender:user.gender
             }
           });
         } else {
