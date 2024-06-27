@@ -24,6 +24,10 @@ const UserSchema = mongoose.Schema(
       enum: ["super-admin", "admin", "user"],
       default: "user",
     },
+    gender:{
+      type:String,
+      required:true,
+    },
     active: {
       type: Boolean,
       default: false,
