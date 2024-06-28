@@ -2,7 +2,6 @@ const express = require("express");
 const passport = require("passport");
 const auth = require('../controllers/auth');
 const { getAllUsers } = require("../controllers/user-management");
-const authenticateToken = require("../config/authenticateToken");
 const router = express.Router();
 
 // Get routes
