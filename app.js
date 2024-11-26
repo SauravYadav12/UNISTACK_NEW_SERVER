@@ -6,6 +6,7 @@ const mongoose = require("mongoose");
 const users = require("./routes/users");
 const dotenv = require("dotenv");
 const requirements = require("./routes/requirements")
+const interviews = require("./routes/interviews")
 
 dotenv.config({ path: "./config.env" });
 
@@ -41,6 +42,7 @@ mongoose
 //User Routes
 app.use("/users", users);
 app.use("/requirements", requirements);
+app.use("/interviews", interviews);
 
 //PORT
 const port = process.env.PORT || 5000;
