@@ -2,7 +2,9 @@ const Requirement = require("../models/requirement")
 
 exports.getAllRrequirements = async (req, res) => {
     try {
-        const requirements = await Requirement.find()
+        // console.log(req.query)
+        req.query.reqID ? req.query : req.query={}
+        const requirements = await Requirement.find(req.query)
         res.status(200).json({
             status: "success",
             data: requirements

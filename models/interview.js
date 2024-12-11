@@ -3,7 +3,9 @@ const mongoose = require('mongoose');
 const interviewSchema = new mongoose.Schema(
     {
       intId: {
-        type: String
+        type: String,
+        unique: true,
+        default: () => `INT-${new Date().getTime()}`
       },
       interviewDate: {
         type: String
@@ -63,13 +65,13 @@ const interviewSchema = new mongoose.Schema(
         type: String
       },
       taxType: {
-        type: String
+        type: Array
       },
       clientName: {
         type: String
       },
       duration: {
-        type: String
+        type: Array
       },
       candidateName: {
         type: String
