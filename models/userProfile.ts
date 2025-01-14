@@ -56,15 +56,12 @@ const profileEmailSchema = new Schema<ProfileEmail>({
   personal: {
     type: String,
     default: "",
-    // required: true,
     unique: true,
     match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
   },
   official: {
     type: String,
     default: "",
-    unique: true,
-    // required: true,
     match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
   },
 });
@@ -78,6 +75,7 @@ const userProfileSchema = new Schema<UserProfile>(
       ref: User,
     },
     employeeId: {
+      unique: true,
       type: String,
       required: true,
     },
@@ -92,20 +90,17 @@ const userProfileSchema = new Schema<UserProfile>(
     phoneNumber: {
       type: String,
       default: "",
-      // required: true,
       unique: true,
       match: /^\+?[1-9]\d{4,14}$/,
     },
     emergencyPhoneNumber: {
       type: String,
-      // required: true,
       match: /^\+?[1-9]\d{4,14}$/,
       default: "",
     },
     panNumber: {
       type: String,
       unique: true,
-      // required: true,
       default: "",
     },
     aadharNumber: { type: String, unique: true, default: "" },
