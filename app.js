@@ -9,7 +9,8 @@ const requirements = require("./routes/requirements")
 const interviews = require("./routes/interviews")
 const vendors = require("./routes/vendors")
 const consultants = require("./routes/consultants")
-
+const { userProfileRoutes } = require("./routes/userProfileRoutes");
+const { storageRoutes } = require("./routes/storageRoutes");
 dotenv.config({ path: "./config.env" });
 
 const app = express();
@@ -47,7 +48,8 @@ app.use("/requirements", requirements);
 app.use("/interviews", interviews);
 app.use("/vendors", vendors)
 app.use("/consultants", consultants)
-
+app.use("/user-profiles", userProfileRoutes);
+app.use("/storage", storageRoutes);
 //PORT
 const port = process.env.PORT || 5000;
 
