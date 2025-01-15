@@ -5,10 +5,6 @@ const passport = require("passport");
 const mongoose = require("mongoose");
 const users = require("./routes/users");
 const dotenv = require("dotenv");
-const requirements = require("./routes/requirements");
-const interviews = require("./routes/interviews");
-const { userProfileRoutes } = require("./routes/userProfileRoutes");
-const { storageRoutes } = require("./routes/storageRoutes");
 
 dotenv.config({ path: "./config.env" });
 
@@ -43,10 +39,7 @@ mongoose
 
 //User Routes
 app.use("/users", users);
-app.use("/requirements", requirements);
-app.use("/interviews", interviews);
-app.use("/user-profiles", userProfileRoutes);
-app.use("/storage", storageRoutes);
+
 //PORT
 const port = process.env.PORT || 5000;
 
