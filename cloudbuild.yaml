@@ -1,0 +1,32 @@
+steps:
+  - name: gcr.io/cloud-builders/npm
+    args:
+      - install
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - '--build-arg'
+      - NODE_ENV=production
+      - '-t'
+      - '${_GCR_REGION}.gcr.io/$PROJECT_ID/${_SERVICE_NAME}:$COMMIT_SHA'
+      - .
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - '${_GCR_REGION}.gcr.io/$PROJECT_ID/${_SERVICE_NAME}:$COMMIT_SHA'
+  - name: gcr.io/cloud-builders/gcloud
+    args:
+      - run
+      - deploy
+      - '${_SERVICE_NAME}'
+      - '--image=${_GCR_REGION}.gcr.io/$PROJECT_ID/${_SERVICE_NAME}:$COMMIT_SHA'
+      - '--region=${_LOCATION}'
+      - '--platform=managed'
+images:
+  - '${_GCR_REGION}.gcr.io/$PROJECT_ID/${_SERVICE_NAME}:$COMMIT_SHA'
+options:
+  logging: CLOUD_LOGGING_ONLY
+substitutions:
+  _GCR_REGION: us
+  _SERVICE_NAME: service-name
+  _LOCATION: us-central1
