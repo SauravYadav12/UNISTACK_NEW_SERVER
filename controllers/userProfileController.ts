@@ -9,10 +9,12 @@ export const getUserProfiles = async (req: Request, res: Response) => {
     const limit = parseInt(req.query.limit as string) || 25;
     const startIndex = (page - 1) * limit;
     const endIndex = page * limit;
+    const query: any = { ...req.query };
+    delete query.page;
+    delete query.limit;
+    const total = await UserProfileModel.countDocuments(query);
 
-    const total = await UserProfileModel.countDocuments(req.body);
-
-    const userProfiles = await UserProfileModel.find(req.body)
+    const userProfiles = await UserProfileModel.find(query)
       .limit(limit)
       .skip(startIndex)
       .exec();

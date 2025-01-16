@@ -56,7 +56,6 @@ const profileEmailSchema = new Schema<ProfileEmail>({
   personal: {
     type: String,
     default: "",
-    unique: true,
     match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
   },
   official: {
@@ -90,7 +89,6 @@ const userProfileSchema = new Schema<UserProfile>(
     phoneNumber: {
       type: String,
       default: "",
-      unique: true,
       match: /^\+?[1-9]\d{4,14}$/,
     },
     emergencyPhoneNumber: {
@@ -100,10 +98,9 @@ const userProfileSchema = new Schema<UserProfile>(
     },
     panNumber: {
       type: String,
-      unique: true,
       default: "",
     },
-    aadharNumber: { type: String, unique: true, default: "" },
+    aadharNumber: { type: String, default: "" },
     bankDetails: { type: bankDetailsSchema, default: defaultBankDetails },
     communicationAddress: { type: addressSchema, default: defaultAddress },
     permanentAddress: { type: addressSchema, default: defaultAddress },
