@@ -25,7 +25,6 @@ const s3Client = new S3Client({
   },
 });
 
-
 export const uploadFile = async (req: Request, res: Response) => {
   if (!req.file) {
     res.status(400).json({ error: "No file to uploaded" });
@@ -33,20 +32,23 @@ export const uploadFile = async (req: Request, res: Response) => {
   }
 
   try {
-    const key=`uploads/${Date.now()}-${req.file.originalname}`
+    const key = `uploads/${Date.now()}-${req.file.originalname}`;
     const params: PutObjectCommandInput = {
       Bucket: bucket,
-      Key:key,
+      Key: key,
       Body: req.file.buffer,
-      ACL: 'public-read',
+      ACL: "public-read",
       ContentType: req.file.mimetype,
     };
 
-    const data = await s3Client.send(new PutObjectCommand(params));
-    const url=`${endpoint}unistack-storage/${key}`
+    await s3Client.send(new PutObjectCommand(params));
+    const mainEndPoint = endpoint?.endsWith("/")
+      ? endpoint.slice(0, -1)
+      : endpoint;
+    const url = `${mainEndPoint}/unistack-storage/${key}`;
     res.json({
-      data:{
-        url
+      data: {
+        url,
       },
     });
   } catch (err) {
