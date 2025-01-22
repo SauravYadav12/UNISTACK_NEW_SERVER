@@ -49,9 +49,11 @@ export const createUserProfile = async (req: Request, res: Response) => {
   try {
     let totalProfiles = await UserProfileModel.countDocuments();
     const date = new Date();
+    const month =
+      date.getMonth() < 10 ? `0${date.getMonth()}` : date.getMonth();
     const counter =
       totalProfiles < 10 ? `0${totalProfiles}` : `${totalProfiles}`;
-    const employeeId = `UNI-${date.getMonth()}-${date.getFullYear()}/${counter}`;
+    const employeeId = `UNI-${month}-${date.getFullYear()}/${counter}`;
     const newUserProfile = new UserProfileModel({
       ...req.body,
       employeeId,
