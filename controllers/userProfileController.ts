@@ -1,6 +1,5 @@
 import { Request, Response } from "express";
 import { UserProfileModel } from "../models/userProfile";
-import {} from "../models/userProfile";
 import { UserProfile } from "../interface/userProfile";
 
 export const getUserProfiles = async (req: Request, res: Response) => {
@@ -15,6 +14,7 @@ export const getUserProfiles = async (req: Request, res: Response) => {
     const total = await UserProfileModel.countDocuments(query);
 
     const userProfiles = await UserProfileModel.find(query)
+      .sort({ createdAt: -1 })
       .limit(limit)
       .skip(startIndex)
       .exec();
