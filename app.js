@@ -9,10 +9,10 @@ const requirements = require("./routes/requirements");
 const interviews = require("./routes/interviews");
 const vendors = require("./routes/vendors");
 const consultants = require("./routes/consultants");
-const { userProfileRoutes } = require("./routes/userProfileRoutes");
-const { storageRoutes } = require("./routes/storageRoutes");
+const { userProfileRoute } = require("./routes/userProfileRoute");
+const { storageRoute } = require("./routes/storageRoute");
 const teams = require("./routes/teams");
-const { contactMessageRoutes } = require("./routes/contactMessageRoutes");
+const { salesLeadRoute } = require("./routes/salesLeadRoute");
 
 dotenv.config({ path: "./config.env" });
 
@@ -51,9 +51,9 @@ app.use("/requirements", requirements);
 app.use("/interviews", interviews);
 app.use("/vendors", vendors);
 app.use("/consultants", consultants);
-app.use("/user-profiles", userProfileRoutes);
-app.use("/storage", storageRoutes);
-app.use("/contacts", contactMessageRoutes);
+app.use("/user-profiles", userProfileRoute);
+app.use("/storage", storageRoute);
+app.use("/sales-leads", salesLeadRoute);
 app.use("/teams", teams);
 
 //PORT

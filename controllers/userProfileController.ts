@@ -1,44 +1,13 @@
 import { Request, Response } from "express";
 import { UserProfileModel } from "../models/userProfile";
-import { UserProfile } from "../interface/userProfile";
 
 export const getUserProfiles = async (req: Request, res: Response) => {
   try {
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 25;
-    const startIndex = (page - 1) * limit;
-    const endIndex = page * limit;
-    const query: any = { ...req.query };
-    delete query.page;
-    delete query.limit;
-    const total = await UserProfileModel.countDocuments(query);
+    const userProfiles = await UserProfileModel.find(req.query).sort({
+      createdAt: -1,
+    });
 
-    const userProfiles = await UserProfileModel.find(query)
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .skip(startIndex)
-      .exec();
-
-    const results: GetUserProfilesResult = {};
-
-    if (endIndex < total) {
-      results.next = {
-        page: page + 1,
-        limit: limit,
-      };
-    }
-
-    if (startIndex > 0) {
-      results.previous = {
-        page: page - 1,
-        limit: limit,
-      };
-    }
-    results.results = userProfiles;
-    results.currentPage = page;
-    results.totalPages = Math.ceil(total / limit);
-
-    res.status(200).json({ data: results });
+    res.status(200).json({ data: userProfiles });
   } catch (error) {
     // console.error(error);
     res.status(500).json({ error: error });
@@ -51,9 +20,10 @@ export const createUserProfile = async (req: Request, res: Response) => {
     const date = new Date();
     const month =
       date.getMonth() < 10 ? `0${date.getMonth()}` : date.getMonth();
+    const day = date.getDate() < 10 ? `0${date.getDate()}` : date.getDate();
     const counter =
       totalProfiles < 10 ? `0${totalProfiles}` : `${totalProfiles}`;
-    const employeeId = `UNI-${month}-${date.getFullYear()}/${counter}`;
+    const employeeId = `UNI-${day}-${month}-${date.getFullYear()}/${counter}`;
     const newUserProfile = new UserProfileModel({
       ...req.body,
       employeeId,
@@ -123,11 +93,3 @@ export const getUserProfileById = async (req: Request, res: Response) => {
     res.status(500).json({ error: error });
   }
 };
-
-export interface GetUserProfilesResult {
-  next?: { page: number; limit: number };
-  previous?: { page: number; limit: number };
-  results?: UserProfile[];
-  currentPage?: number;
-  totalPages?: number;
-}

@@ -84,7 +84,7 @@ const userProfileSchema = new Schema<UserProfile>(
       maxLength: 20,
     },
     photo: { type: String, validate: urlValidator, default: "" },
-    email: { type: profileEmailSchema, required: true, default: defaultEmail },
+    email: { type: profileEmailSchema, default: defaultEmail },
     dob: { type: Date, default: "" },
     phoneNumber: {
       type: String,
