@@ -1,8 +1,10 @@
 import { Schema, model } from "mongoose";
 import { SalesLead } from "../interface/salesLead";
+import User from "./user";
 
 export const commentSchema = new Schema({
   name: { type: String, required: true },
+  commentBy: { type: Schema.Types.ObjectId, ref: User, required: true },
   comment: { type: String, required: true },
   date: { type: Date, default: Date.now },
 });

@@ -14,7 +14,7 @@ userProfileRoute.post(
   passport.authenticate("jwt", { session: false }),
   createUserProfile
 );
-userProfileRoute.put(
+userProfileRoute.patch(
   "/:id",
   passport.authenticate("jwt", { session: false }),
   updateUserProfileById

@@ -7,8 +7,7 @@ import {
   getSalesLeadsById,
   getSalesLeads,
   updateSalesLead,
-  createComment,updateComment,
-  deleteComment,
+  createComment
 } from "../controllers/salesLeadController";
 const salesLeadRoute = Router();
 
@@ -38,15 +37,6 @@ salesLeadRoute.post(
   passport.authenticate("jwt", { session: false }),
   createComment
 );
-salesLeadRoute.patch(
-  "/:salesLeadId/comments/:commentId",
-  passport.authenticate("jwt", { session: false }),
-  updateComment
-);
-salesLeadRoute.delete(
-  "/:salesLeadId/comments/:commentId",
-  passport.authenticate("jwt", { session: false }),
-  deleteComment
-);
+
 
 export { salesLeadRoute };

@@ -21,6 +21,7 @@ export type SalesLeadStatus =
 
 export interface SalesLeadComment {
   name: string;
+  commentBy:string;
   date: string;
   comment: string;
 }
