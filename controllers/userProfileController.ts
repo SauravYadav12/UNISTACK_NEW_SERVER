@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { UserProfileModel } from "../models/userProfile";
 import { UserProfile } from "../interface/userProfile";
+import { PaginateResult } from "../interface/pagination";
 
 export const getUserProfiles = async (req: Request, res: Response) => {
   try {
@@ -19,7 +20,7 @@ export const getUserProfiles = async (req: Request, res: Response) => {
       .skip(startIndex)
       .exec();
 
-    const results: GetUserProfilesResult = {};
+    const results: PaginateResult<UserProfile> = {};
 
     if (endIndex < total) {
       results.next = {
@@ -123,11 +124,3 @@ export const getUserProfileById = async (req: Request, res: Response) => {
     res.status(500).json({ error: error });
   }
 };
-
-export interface GetUserProfilesResult {
-  next?: { page: number; limit: number };
-  previous?: { page: number; limit: number };
-  results?: UserProfile[];
-  currentPage?: number;
-  totalPages?: number;
-}

@@ -74,7 +74,7 @@ const userProfileSchema = new Schema<UserProfile>(
       ref: User,
     },
     employeeId: {
-      unique: true,
+      unique: false,
       type: String,
       required: true,
     },

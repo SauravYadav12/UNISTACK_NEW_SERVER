@@ -8,31 +8,31 @@ import {
   updateUserProfileById,
 } from "../controllers/userProfileController";
 
-const userProfileRoutes = Router();
-userProfileRoutes.post(
+const userProfileRoute = Router();
+userProfileRoute.post(
   "/",
   passport.authenticate("jwt", { session: false }),
   createUserProfile
 );
-userProfileRoutes.put(
+userProfileRoute.put(
   "/:id",
   passport.authenticate("jwt", { session: false }),
   updateUserProfileById
 );
-userProfileRoutes.get(
+userProfileRoute.get(
   "/",
   passport.authenticate("jwt", { session: false }),
   getUserProfiles
 );
-userProfileRoutes.get(
+userProfileRoute.get(
   "/:id",
   passport.authenticate("jwt", { session: false }),
   getUserProfileById
 );
-userProfileRoutes.delete(
+userProfileRoute.delete(
   "/:id",
   passport.authenticate("jwt", { session: false }),
   deleteUserProfileById
 );
 
-export { userProfileRoutes };
+export { userProfileRoute };
