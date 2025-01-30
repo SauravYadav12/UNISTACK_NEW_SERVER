@@ -21,12 +21,12 @@ const UserSchema = mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ["super-admin", "admin", "user"],
+      enum: ["super-admin", "admin", "user", "support", "marketing", "hr"],
       default: "user",
     },
-    gender:{
-      type:String,
-      required:true,
+    gender: {
+      type: String,
+      required: true,
     },
     active: {
       type: Boolean,
