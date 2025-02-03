@@ -13,6 +13,7 @@ const { userProfileRoute } = require("./routes/userProfileRoute");
 const { storageRoute } = require("./routes/storageRoute");
 const teams = require("./routes/teams");
 const { salesLeadRoute } = require("./routes/salesLeadRoute");
+const { reportRoute } = require("./routes/reportRoute");
 
 dotenv.config({ path: "./config.env" });
 
@@ -55,6 +56,7 @@ app.use("/user-profiles", userProfileRoute);
 app.use("/storage", storageRoute);
 app.use("/sales-leads", salesLeadRoute);
 app.use("/teams", teams);
+app.use("/reports", reportRoute);
 
 //PORT
 const port = process.env.PORT || 5000;
