@@ -2,9 +2,25 @@ const Interview = require("../models/interview")
 
 exports.getAllInterviews = async (req, res) => {
     try {
-        // console.log(req.query)
-        req.query.interviewStatus ? req.query : req.query={}
-        const interviews = await Interview.find(req.query)
+      const { intId, interviewStatus,fromDate, toDate, marketingPersonRef,marketingPerson  } =
+      req.query;
+
+    const customQuery = {};
+
+    if (intId) customQuery.intId = intId;
+    if (interviewStatus) customQuery.interviewStatus = interviewStatus;
+    if (fromDate || toDate) {
+      const parsedStartDate = Date.parse(fromDate) || new Date();
+      const parsedEndDate = Date.parse(toDate) || new Date();
+      customQuery.createdAt = {
+        $gte: parsedStartDate,
+        $lte: parsedEndDate,
+      };
+    }
+    if (marketingPersonRef) customQuery.marketingPersonRef = marketingPersonRef;
+    if (marketingPerson) customQuery.marketingPerson = marketingPerson;
+
+        const interviews = await Interview.find(customQuery)
         res.status(200).json({
             status: "success",
             data: interviews

@@ -8,6 +8,7 @@ import {
   RequirementStatus,
 } from "../interface/interfaces";
 import Interview from "../models/interview";
+import User from "../models/user";
 
 const reqStatusList: RequirementStatus[] = [
   "New Working",
@@ -24,14 +25,32 @@ export const interviewStatusList: InterviewStatus[] = [
   "Interview Completed",
   "Interview Re-Scheduled",
 ];
-
+const pushAccountsWithZeroRecords = (
+  recordSorted: (PositionReport | MarketingReport | InterviewReport)[],
+  accounts: any[]
+) => {
+  const accountsWithZeroRecords = accounts.filter(
+    (s) =>
+      !recordSorted.find((r) => {
+        return `${r.id}` === `${s._id}`;
+      })
+  );
+  for (const s of accountsWithZeroRecords) {
+    recordSorted.push({
+      name: `${s.firstName} ${s.lastName}`,
+      id: s._id,
+    });
+  }
+  return recordSorted;
+};
 const sortSupportRecords = (positions: any[]) => {
   let positionSorted: PositionReport[] = [];
   for (let req of positions) {
-    const i = positionSorted.findIndex((e) => e.name === req.recordOwner);
+    const i = positionSorted.findIndex((e) => e.name === req.reqEnteredBy);
     let info: PositionReport = i > -1 ? positionSorted[i] : {};
 
     info.name = req.reqEnteredBy || "NA";
+    info.id = req.reqEnteredByRef;
     info.totalPositions = (info.totalPositions || 0) + 1;
 
     for (const status of reqStatusList) {
@@ -53,21 +72,14 @@ const sortSupportRecords = (positions: any[]) => {
 
 const sortMarketingRecords = (allPositions: any[]) => {
   let sortedRecords: MarketingReport[] = [];
-  let unassigned: any[] = [];
 
   for (let req of allPositions) {
-    if (!req.assignedTo) {
-      unassigned.push(req);
-      continue;
-    }
-
-    const i = sortedRecords.findIndex(
-      (e) => e.marketingPerson === req.assignedTo
-    );
+    const i = sortedRecords.findIndex((e) => e.name === req.assignedTo);
 
     let info: MarketingReport = i > -1 ? sortedRecords[i] : {};
 
-    info.marketingPerson = req.assignedTo || "NA";
+    info.name = req.assignedTo;
+    info.id = req.assignedToRef;
     info.totalAssigned = (info.totalAssigned || 0) + 1;
 
     for (const status of reqStatusList) {
@@ -84,16 +96,19 @@ const sortMarketingRecords = (allPositions: any[]) => {
     }
   }
 
-  return [sortedRecords, unassigned];
+  return sortedRecords;
 };
 
 const sortInterviewsRecords = (allInterviews: any[]) => {
   let sortedInterviews: InterviewReport[] = [];
   for (let req of allInterviews) {
-    const i = sortedInterviews.findIndex((e) => e.name === req.marketingPerson);
+    const i = sortedInterviews.findIndex(
+      (e) => e.name === (req.marketingPerson || "NA")
+    );
     let info: InterviewReport = i > -1 ? sortedInterviews[i] : {};
 
     info.name = req.marketingPerson || "NA";
+    info.id = req.marketingPersonRef;
     info.totalInterviews = (info.totalInterviews || 0) + 1;
 
     for (const status of interviewStatusList) {
@@ -118,14 +133,21 @@ export const getSupportReport = async (req: Request, res: Response) => {
     let { fromDate, toDate } = req.query;
     const parsedStartDate = Date.parse(fromDate as string) || new Date();
     const parsedEndDate = Date.parse(toDate as string) || new Date();
+    const supports = await User.find({ role: "support" });
+    const ids = supports.map((s) => s._id);
     const positions = await Requirement.find({
       createdAt: {
         $gte: parsedStartDate,
         $lte: parsedEndDate,
       },
-      //   isDuplicate:false
+      reqEnteredByRef: { $in: ids },
     });
-    const report = sortSupportRecords(positions);
+
+    const report = pushAccountsWithZeroRecords(
+      sortSupportRecords(positions),
+      supports
+    );
+
     res.status(200).json({
       data: report,
     });
@@ -142,18 +164,20 @@ export const getMarketingReport = async (req: Request, res: Response) => {
     let { fromDate, toDate } = req.query;
     const parsedStartDate = Date.parse(fromDate as string) || new Date();
     const parsedEndDate = Date.parse(toDate as string) || new Date();
+    const marketing = await User.find({ role: "marketing" });
+    const ids = marketing.map((s) => s._id);
     const positions = await Requirement.find({
       createdAt: {
         $gte: parsedStartDate,
         $lte: parsedEndDate,
       },
+      assignedToRef: { $in: ids },
     });
-    const [assigned, unassigned] = sortMarketingRecords(positions);
+
+    const assigned = sortMarketingRecords(positions);
+    const report = pushAccountsWithZeroRecords(assigned, marketing);
     res.status(200).json({
-      data: {
-        assigned,
-        unassigned,
-      },
+      data: report,
     });
   } catch (error) {
     console.log(error);
@@ -168,15 +192,24 @@ export const getInterviewReport = async (req: Request, res: Response) => {
     let { fromDate, toDate } = req.query;
     const parsedStartDate = Date.parse(fromDate as string) || new Date();
     const parsedEndDate = Date.parse(toDate as string) || new Date();
+    const marketing = await User.find({ role: "marketing" });
+    const ids = marketing.map((s) => s._id);
     const interviews = await Interview.find({
       createdAt: {
         $gte: parsedStartDate,
         $lte: parsedEndDate,
       },
+      marketingPersonRef: { $in: ids },
     });
-    const report = sortInterviewsRecords(interviews);
+    const report = pushAccountsWithZeroRecords(
+      sortInterviewsRecords(interviews),
+      marketing
+    );
     res.status(200).json({
-      data: report,
+      data: {
+        report,
+        totalInterviews: interviews.length,
+      },
     });
   } catch (error) {
     console.log(error);
@@ -185,3 +218,7 @@ export const getInterviewReport = async (req: Request, res: Response) => {
     });
   }
 };
+
+
+
+
