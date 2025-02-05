@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-
+const User = require("./user");
 const interviewSchema = new mongoose.Schema(
     {
       intId: {
@@ -27,6 +27,11 @@ const interviewSchema = new mongoose.Schema(
       },
       marketingPerson: {
         type: String
+      },
+      marketingPersonRef: {
+      required: true,
+      type: mongoose.Schema.Types.ObjectId,
+      ref: User,
       },
       vendorCompany: {
         type: String

@@ -2,18 +2,21 @@ export type PositionReport = {
   [key in RequirementStatus]?: number;
 } & {
   name?: string;
+  id?:string;
   totalPositions?: number;
 };
 export type MarketingReport = {
   [key in RequirementStatus]?: number;
 } & {
-  marketingPerson?: string;
+  name?: string;
+  id?:string;
   totalAssigned?: number;
 };
 export type InterviewReport = {
   [key in InterviewStatus]?: number;
 } & {
   name?: string;
+  id?:string;
   totalInterviews?: number;
 };
 
