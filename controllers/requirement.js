@@ -1,26 +1,21 @@
 const Requirement = require("../models/requirement");
+const { myDate } = require("../utils/dateUtil");
 
 exports.getAllRrequirements = async (req, res) => {
   try {
-    const { reqID, reqStatus,fromDate, toDate, assignedToRef, reqEnteredByRef } =
-      req.query;
+    const { fromDate, toDate } = req.query;
 
-    const customQuery = {};
-
-    if (reqID) customQuery.reqID = reqID;
-    if (reqStatus) customQuery.reqStatus = reqStatus;
     if (fromDate || toDate) {
-      const parsedStartDate = Date.parse(fromDate) || new Date();
-      const parsedEndDate = Date.parse(toDate) || new Date();
-      customQuery.createdAt = {
-        $gte: parsedStartDate,
-        $lte: parsedEndDate,
+      const { from, to } = myDate(fromDate, toDate);
+      req.query.createdAt = {
+        $gte: from,
+        $lte: to,
       };
+      delete req.query.fromDate;
+      delete req.query.toDate;
     }
-    if (assignedToRef) customQuery.assignedToRef = assignedToRef;
-    if (reqEnteredByRef) customQuery.reqEnteredByRef = reqEnteredByRef;
 
-    const requirements = await Requirement.find(customQuery);
+    const requirements = await Requirement.find(req.query);
 
     res.status(200).json({
       status: "success",
