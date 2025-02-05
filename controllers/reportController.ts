@@ -9,6 +9,7 @@ import {
 } from "../interface/interfaces";
 import Interview from "../models/interview";
 import User from "../models/user";
+import { myDate } from "../utils/dateUtil";
 
 const reqStatusList: RequirementStatus[] = [
   "New Working",
@@ -131,14 +132,13 @@ const sortInterviewsRecords = (allInterviews: any[]) => {
 export const getSupportReport = async (req: Request, res: Response) => {
   try {
     let { fromDate, toDate } = req.query;
-    const parsedStartDate = Date.parse(fromDate as string) || new Date();
-    const parsedEndDate = Date.parse(toDate as string) || new Date();
+    const { from, to } = myDate(fromDate, toDate);
     const supports = await User.find({ role: "support" });
     const ids = supports.map((s) => s._id);
     const positions = await Requirement.find({
       createdAt: {
-        $gte: parsedStartDate,
-        $lte: parsedEndDate,
+        $gte: from,
+        $lte: to,
       },
       reqEnteredByRef: { $in: ids },
     });
@@ -162,14 +162,13 @@ export const getSupportReport = async (req: Request, res: Response) => {
 export const getMarketingReport = async (req: Request, res: Response) => {
   try {
     let { fromDate, toDate } = req.query;
-    const parsedStartDate = Date.parse(fromDate as string) || new Date();
-    const parsedEndDate = Date.parse(toDate as string) || new Date();
+    const { from, to } = myDate(fromDate, toDate);
     const marketing = await User.find({ role: "marketing" });
     const ids = marketing.map((s) => s._id);
     const positions = await Requirement.find({
       createdAt: {
-        $gte: parsedStartDate,
-        $lte: parsedEndDate,
+        $gte: from,
+        $lte: to,
       },
       assignedToRef: { $in: ids },
     });
@@ -190,14 +189,13 @@ export const getMarketingReport = async (req: Request, res: Response) => {
 export const getInterviewReport = async (req: Request, res: Response) => {
   try {
     let { fromDate, toDate } = req.query;
-    const parsedStartDate = Date.parse(fromDate as string) || new Date();
-    const parsedEndDate = Date.parse(toDate as string) || new Date();
+    const { from, to } = myDate(fromDate, toDate);
     const marketing = await User.find({ role: "marketing" });
     const ids = marketing.map((s) => s._id);
     const interviews = await Interview.find({
       createdAt: {
-        $gte: parsedStartDate,
-        $lte: parsedEndDate,
+        $gte: from,
+        $lte: to,
       },
       marketingPersonRef: { $in: ids },
     });
