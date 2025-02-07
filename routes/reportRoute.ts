@@ -1,5 +1,6 @@
 import { Router } from "express";
 import {
+  getDashboardReport,
   getInterviewReport,
   getMarketingReport,
   getSupportReport,
@@ -22,5 +23,9 @@ reportRoute.get(
   passport.authenticate("jwt", { session: false }),
   getInterviewReport
 );
-
+reportRoute.get(
+  "/dashboard",
+  passport.authenticate("jwt", { session: false }),
+  getDashboardReport
+);
 export { reportRoute };
