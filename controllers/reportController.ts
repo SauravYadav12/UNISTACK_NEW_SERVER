@@ -220,13 +220,22 @@ export const getInterviewReport = async (req: Request, res: Response) => {
 
 export const getDashboardReport = async (req: Request, res: Response) => {
   try {
-    const totalUsers = await User.countDocuments();
-    const totalActiveUsers = await User.countDocuments({ active: true });
-    const totalRequirements = await Requirement.countDocuments();
-    const totalInterviews = await Interview.countDocuments();
-    const totalConfirmInterviews = await Interview.countDocuments({
-      interviewStatus: "Interview Confirm",
-    });
+    const reportPromises = [
+      User.countDocuments(),
+      User.countDocuments({ active: true }),
+      Requirement.countDocuments(),
+      Interview.countDocuments(),
+      Interview.countDocuments({
+        interviewStatus: "Interview Confirm",
+      }),
+    ];
+    const [
+      totalUsers,
+      totalActiveUsers,
+      totalRequirements,
+      totalInterviews,
+      totalConfirmInterviews,
+    ] = await Promise.all(reportPromises);
 
     res.status(200).json({
       data: {
