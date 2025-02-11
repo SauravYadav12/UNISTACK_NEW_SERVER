@@ -12,6 +12,7 @@ router.get("/dashboard", passport.authenticate("jwt", { session: false }), auth.
 //Post Routes
 router.post("/signup", auth.signup);
 router.post("/login", auth.login);
+router.post("/logout", auth.addLogoutActivity);
 
 //User Management
 router.get("/list", passport.authenticate("jwt", { session: false }), getAllUsers);

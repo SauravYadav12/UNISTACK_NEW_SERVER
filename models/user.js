@@ -47,6 +47,14 @@ const UserSchema = mongoose.Schema(
       type: String,
       required: true,
     },
+    activity: [
+      {
+        loggedInAt: { type: Date },
+        loggedOutAt: { type: Date },
+        location: { type: String },
+        ip: { type: String },
+      },
+    ],
   },
   {
     timestamps: true,
@@ -89,3 +97,20 @@ module.exports.comparePassword = function (candidatePassword, hash, callback) {
     callback(null, isMatch);
   });
 };
+
+UserSchema.pre("save", function (next) {
+  const now = new Date();
+  const thirtyDaysAgo = new Date(now.setDate(now.getDate() - 30*3));
+
+  // Filter out activity logs older than 3 months
+  this.activity = (this.activity || []).filter(
+    ({ loggedInAt, loggedOutAt }) => {
+      return (
+        (loggedInAt && loggedInAt > thirtyDaysAgo) ||
+        (loggedOutAt && loggedOutAt > thirtyDaysAgo)
+      );
+    }
+  );
+
+  next();
+});
