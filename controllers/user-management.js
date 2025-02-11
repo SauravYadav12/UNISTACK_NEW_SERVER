@@ -2,30 +2,32 @@ const User = require("../models/user");
 
 exports.getAllUsers = async (req, res) => {
   try {
-    const users = await User.find({});
+    const users = await User.find().sort({ createdAt: -1 });
     res.status(200).json({
       status: "success",
-      users
+      users,
     });
   } catch (error) {
     res.status(400).json({
       status: "failed",
-      error
+      error,
     });
   }
 };
 
 exports.updateUser = async (req, res) => {
   try {
-    const user = await User.findByIdAndUpdate(req.params.id, req.body, {new: true});
+    const user = await User.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+    });
     res.status(200).json({
       status: "success",
-      user
-    })
+      user,
+    });
   } catch (error) {
     res.status(400).json({
       status: "failed",
-      error
-    })
+      error,
+    });
   }
-}
+};

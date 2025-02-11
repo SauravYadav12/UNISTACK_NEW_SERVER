@@ -12,6 +12,7 @@ export const getSalesLeads = async (req: Request, res: Response) => {
     res.status(500).json({ error: error });
   }
 };
+
 export const getSalesLeadsById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -79,6 +80,7 @@ export const deleteSalesLead = async (req: Request, res: Response) => {
     res.status(500).json({ error });
   }
 };
+
 export const createComment = async (req: Request, res: Response) => {
   try {
     const { salesLeadId } = req.params;
