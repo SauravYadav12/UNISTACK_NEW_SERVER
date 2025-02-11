@@ -15,7 +15,7 @@ exports.getAllInterviews = async (req, res) => {
       delete req.query.toDate;
     }
 
-    const interviews = await Interview.find(req.query);
+    const interviews = await Interview.find(req.query).sort({ createdAt: -1 });
     res.status(200).json({
       status: "success",
       data: interviews,
@@ -30,7 +30,6 @@ exports.getAllInterviews = async (req, res) => {
 exports.createInterview = async (req, res) => {
   try {
     const interview = await Interview.create(req.body);
-    // console.log("Body", req.body)
     res.status(200).json({
       status: "success",
       data: interview,
@@ -50,7 +49,6 @@ exports.updateInterview = async (req, res) => {
     const data = await Interview.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
     });
-    //   console.log(req.params.id)
     if (!data) {
       return res.status(404).json({
         status: "failed",

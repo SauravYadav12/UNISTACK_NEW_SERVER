@@ -9,7 +9,6 @@ export const getUserProfiles = async (req: Request, res: Response) => {
 
     res.status(200).json({ data: userProfiles });
   } catch (error) {
-    // console.error(error);
     res.status(500).json({ error: error });
   }
 };
@@ -53,7 +52,6 @@ export const updateUserProfileById = async (req: Request, res: Response) => {
 
     res.status(200).json({ data: updatedUserProfile });
   } catch (error) {
-    // console.error(error);
     res.status(500).json({ error: error });
   }
 };
@@ -71,7 +69,6 @@ export const deleteUserProfileById = async (req: Request, res: Response) => {
 
     res.status(200).json({ data: "User Profile deleted successfully" });
   } catch (error) {
-    // console.error(error);
     res.status(500).json({ error });
   }
 };
@@ -89,7 +86,6 @@ export const getUserProfileById = async (req: Request, res: Response) => {
 
     res.status(200).json({ data: userProfile });
   } catch (error) {
-    // console.error(error);
     res.status(500).json({ error: error });
   }
 };

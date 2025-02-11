@@ -15,7 +15,9 @@ exports.getAllRrequirements = async (req, res) => {
       delete req.query.toDate;
     }
 
-    const requirements = await Requirement.find(req.query);
+    const requirements = await Requirement.find(req.query).sort({
+      createdAt: -1,
+    });
 
     res.status(200).json({
       status: "success",
@@ -31,7 +33,6 @@ exports.getAllRrequirements = async (req, res) => {
 exports.createRequirement = async (req, res) => {
   try {
     const requirement = await Requirement.create(req.body);
-    // console.log("Body", req.body)
     res.status(200).json({
       status: "success",
       data: requirement,
