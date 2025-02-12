@@ -47,6 +47,10 @@ const UserSchema = mongoose.Schema(
       type: String,
       required: true,
     },
+    canEdit: {
+      type: Boolean,
+      default: false,
+    },
     activity: [
       {
         loggedInAt: { type: Date },
@@ -100,7 +104,7 @@ module.exports.comparePassword = function (candidatePassword, hash, callback) {
 
 UserSchema.pre("save", function (next) {
   const now = new Date();
-  const thirtyDaysAgo = new Date(now.setDate(now.getDate() - 30*3));
+  const thirtyDaysAgo = new Date(now.setDate(now.getDate() - 30 * 3));
 
   // Filter out activity logs older than 3 months
   this.activity = (this.activity || []).filter(
