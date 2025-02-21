@@ -14,6 +14,7 @@ const { storageRoute } = require("./routes/storageRoute");
 const teams = require("./routes/teams");
 const { salesLeadRoute } = require("./routes/salesLeadRoute");
 const { reportRoute } = require("./routes/reportRoute");
+const { archiveRoute } = require("./routes/archivesRoute");
 
 dotenv.config({ path: "./config.env" });
 
@@ -57,6 +58,7 @@ app.use("/storage", storageRoute);
 app.use("/sales-leads", salesLeadRoute);
 app.use("/teams", teams);
 app.use("/reports", reportRoute);
+app.use("/archives", archiveRoute);
 
 //PORT
 const port = process.env.PORT || 5000;
