@@ -38,7 +38,7 @@ exports.addLogoutActivity = async (req, res) => {
       ip,
       location,
     };
-    await User.findByIdAndUpdate(_id, { $push: { activity } },{ new: true });
+    await User.findByIdAndUpdate(_id, { $push: { activity } }, { new: true });
     res.status(200).json({ status: "success" });
   } catch (error) {
     res.status(400).json({ status: "failed" });
@@ -56,50 +56,58 @@ exports.login = async (req, res, next) => {
       });
     }
 
-    User.comparePassword(req.body.password, user.password, async(err, isMatch) => {
-      if (err) throw err;
+    User.comparePassword(
+      req.body.password,
+      user.password,
+      async (err, isMatch) => {
+        if (err) throw err;
 
-      if (isMatch) {
-        if (user.active) {
-          const { ip, location } = req.body;
-          const activity = {
-            loggedInAt: new Date(),
-            ip,
-            location,
-          };
-         const r=await User.findByIdAndUpdate(user._id, {
-            $push: { activity },
-          },{ new: true });
+        if (isMatch) {
+          if (user.active) {
+            const { ip, location } = req.body;
+            const activity = {
+              loggedInAt: new Date(),
+              ip,
+              location,
+            };
+            const r = await User.findByIdAndUpdate(
+              user._id,
+              {
+                $push: { activity },
+              },
+              { new: true }
+            );
 
-          const token = jwt.sign({ user }, process.env.JWT_SECRET_KEY, {
-            expiresIn: 604800, // 1 week
-          });
-          res.status(200).json({
-            token: "JWT " + token,
-            user: {
-              id: user._id,
-              firstName: user.firstName,
-              lastName: user.lastName,
-              corpName: user.corpName,
-              email: user.email,
-              premium: user.premium,
-              role: user.role,
-              active: user.active,
-              gender: user.gender,
-            },
-          });
+            const token = jwt.sign({ user }, process.env.JWT_SECRET_KEY, {
+              expiresIn: "10h",
+            });
+            res.status(200).json({
+              token: "JWT " + token,
+              user: {
+                id: user._id,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                corpName: user.corpName,
+                email: user.email,
+                premium: user.premium,
+                role: user.role,
+                active: user.active,
+                gender: user.gender,
+              },
+            });
+          } else {
+            res.status(400).json({
+              message: "User is not active!",
+            });
+          }
         } else {
-          res.status(400).json({
-            message: "User is not active!",
+          return res.status(400).json({
+            success: false,
+            message: "Invalid Password",
           });
         }
-      } else {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid Password",
-        });
       }
-    });
+    );
   });
 };
 

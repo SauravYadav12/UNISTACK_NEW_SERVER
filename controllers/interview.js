@@ -1,24 +1,24 @@
 const Interview = require("../models/interview");
-const { myDate } = require("../utils/dateUtil");
+const { paginationInstance } = require("../utils/pagination");
 
 exports.getAllInterviews = async (req, res) => {
   try {
-    const { fromDate, toDate } = req.query;
+    const { options, instance } = await paginationInstance(
+      req.query,
+      Interview
+    );
+    const { startIndex, query, limit } = options;
+    const interview = await Interview.find(query)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .skip(startIndex)
+      .exec();
 
-    if (fromDate || toDate) {
-      const { from, to } = myDate(fromDate, toDate);
-      req.query.createdAt = {
-        $gte: from,
-        $lte: to,
-      };
-      delete req.query.fromDate;
-      delete req.query.toDate;
-    }
+    const data = { ...instance, results: interview };
 
-    const interviews = await Interview.find(req.query).sort({ createdAt: -1 });
     res.status(200).json({
       status: "success",
-      data: interviews,
+      data,
     });
   } catch (error) {
     res.status(400).json({

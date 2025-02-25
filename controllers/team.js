@@ -1,11 +1,19 @@
 const Teams = require("../models/teams");
-
+const { paginationInstance } = require("../utils/pagination");
 exports.getAllTeams = async (req, res) => {
   try {
-    const teams = await Teams.find().sort({ createdAt: -1 });
+    const { options, instance } = await paginationInstance(req.query, Teams);
+    const { startIndex, query, limit } = options;
+    const teams = await Teams.find(query)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .skip(startIndex)
+      .exec();
+    const data = { ...instance, results: teams };
+
     res.status(200).json({
       status: "success",
-      data: teams,
+      data,
     });
   } catch (error) {
     res.status(400).json({

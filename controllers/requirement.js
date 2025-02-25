@@ -1,27 +1,22 @@
 const Requirement = require("../models/requirement");
-const { myDate } = require("../utils/dateUtil");
+const { paginationInstance } = require("../utils/pagination");
 
 exports.getAllRrequirements = async (req, res) => {
   try {
-    const { fromDate, toDate } = req.query;
-
-    if (fromDate || toDate) {
-      const { from, to } = myDate(fromDate, toDate);
-      req.query.createdAt = {
-        $gte: from,
-        $lte: to,
-      };
-      delete req.query.fromDate;
-      delete req.query.toDate;
-    }
-
-    const requirements = await Requirement.find(req.query).sort({
-      createdAt: -1,
-    });
-
+    const { options, instance } = await paginationInstance(
+      req.query,
+      Requirement
+    );
+    const { startIndex, query, limit } = options;
+    const requirements = await Requirement.find(query)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .skip(startIndex)
+      .exec();
+    const data = { ...instance, results: requirements };
     res.status(200).json({
       status: "success",
-      data: requirements,
+      data: data,
     });
   } catch (error) {
     res.status(400).json({
