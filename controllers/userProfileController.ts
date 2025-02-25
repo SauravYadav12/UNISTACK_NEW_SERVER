@@ -1,13 +1,21 @@
 import { Request, Response } from "express";
 import { UserProfileModel } from "../models/userProfile";
+import { paginationInstance } from "../utils/pagination";
 
 export const getUserProfiles = async (req: Request, res: Response) => {
   try {
-    const userProfiles = await UserProfileModel.find(req.query).sort({
-      createdAt: -1,
-    });
-
-    res.status(200).json({ data: userProfiles });
+    const { options, instance } = await paginationInstance(
+      req.query,
+      UserProfileModel
+    );
+    const { startIndex, query, limit } = options;
+    const userProfiles = await UserProfileModel.find(query)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .skip(startIndex)
+      .exec();
+    const data = { ...instance, results: userProfiles };
+    res.status(200).json({ data });
   } catch (error) {
     res.status(500).json({ error: error });
   }

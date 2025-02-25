@@ -1,11 +1,18 @@
 const Vendor = require("../models/vendor");
-
+const { paginationInstance } = require("../utils/pagination");
 exports.getAllInterviews = async (req, res) => {
   try {
-    const interviews = await Vendor.find().sort({ createdAt: -1 });
+    const { options, instance } = await paginationInstance(req.query, Vendor);
+    const { startIndex, query, limit } = options;
+    const interviews = await Vendor.find(query)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .skip(startIndex)
+      .exec();
+    const data = { ...instance, results: interviews };
     res.status(200).json({
       status: "success",
-      data: interviews,
+      data,
     });
   } catch (error) {
     res.status(400).json({

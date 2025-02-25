@@ -1,13 +1,22 @@
 import { Request, Response } from "express";
 import { SalesLeadModel } from "../models/salesLead";
+import { paginationInstance } from "../utils/pagination";
 
 export const getSalesLeads = async (req: Request, res: Response) => {
   try {
-    const salesLeads = await SalesLeadModel.find(req.query).sort({
-      createdAt: -1,
-    });
+    const { options, instance } = await paginationInstance(
+      req.query,
+      SalesLeadModel
+    );
+    const { startIndex, query, limit } = options;
+    const salesLeads = await SalesLeadModel.find(query)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .skip(startIndex)
+      .exec();
+    const data = { ...instance, results: salesLeads };
 
-    res.status(200).json({ data: salesLeads });
+    res.status(200).json({ data });
   } catch (error) {
     res.status(500).json({ error: error });
   }

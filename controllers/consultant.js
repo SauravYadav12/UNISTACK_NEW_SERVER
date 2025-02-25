@@ -1,11 +1,21 @@
 const Consultant = require("../models/consultant");
-
+const { paginationInstance } = require("../utils/pagination");
 exports.getAllConsultants = async (req, res) => {
   try {
-    const consultant = await Consultant.find().sort({ createdAt: -1 });
+    const { options, instance } = await paginationInstance(
+      req.query,
+      Consultant
+    );
+    const { startIndex, query, limit } = options;
+    const consultant = await Consultant.find(query)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .skip(startIndex)
+      .exec();
+    const data = { ...instance, results: consultant };
     res.status(200).json({
       status: "success",
-      data: consultant,
+      data,
     });
   } catch (error) {
     res.status(400).json({
