@@ -2,7 +2,7 @@ const Vendor = require("../models/vendor");
 const { paginationInstance } = require("../utils/pagination");
 exports.getAllInterviews = async (req, res) => {
   try {
-    const { options, instance } = await paginationInstance(req.query, Vendor);
+    const { options, instance } = await paginationInstance(req.query, Vendor.collection);
     const { startIndex, query, limit } = options;
     const interviews = await Vendor.find(query)
       .sort({ createdAt: -1 })

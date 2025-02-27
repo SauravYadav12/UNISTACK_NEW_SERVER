@@ -5,7 +5,7 @@ exports.getAllRrequirements = async (req, res) => {
   try {
     const { options, instance } = await paginationInstance(
       req.query,
-      Requirement
+      Requirement.collection
     );
     const { startIndex, query, limit } = options;
     const requirements = await Requirement.find(query)

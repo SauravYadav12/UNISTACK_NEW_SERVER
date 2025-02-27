@@ -4,7 +4,7 @@ exports.getAllConsultants = async (req, res) => {
   try {
     const { options, instance } = await paginationInstance(
       req.query,
-      Consultant
+      Consultant.collection
     );
     const { startIndex, query, limit } = options;
     const consultant = await Consultant.find(query)

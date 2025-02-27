@@ -6,7 +6,7 @@ export const getUserProfiles = async (req: Request, res: Response) => {
   try {
     const { options, instance } = await paginationInstance(
       req.query,
-      UserProfileModel
+      UserProfileModel.collection
     );
     const { startIndex, query, limit } = options;
     const userProfiles = await UserProfileModel.find(query)

@@ -6,8 +6,9 @@ export const getSalesLeads = async (req: Request, res: Response) => {
   try {
     const { options, instance } = await paginationInstance(
       req.query,
-      SalesLeadModel
+      SalesLeadModel.collection
     );
+    const n=await (SalesLeadModel ).collection.find().toArray()
     const { startIndex, query, limit } = options;
     const salesLeads = await SalesLeadModel.find(query)
       .sort({ createdAt: -1 })

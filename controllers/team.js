@@ -2,7 +2,7 @@ const Teams = require("../models/teams");
 const { paginationInstance } = require("../utils/pagination");
 exports.getAllTeams = async (req, res) => {
   try {
-    const { options, instance } = await paginationInstance(req.query, Teams);
+    const { options, instance } = await paginationInstance(req.query, Teams.collection);
     const { startIndex, query, limit } = options;
     const teams = await Teams.find(query)
       .sort({ createdAt: -1 })

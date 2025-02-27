@@ -5,7 +5,7 @@ exports.getAllInterviews = async (req, res) => {
   try {
     const { options, instance } = await paginationInstance(
       req.query,
-      Interview
+      Interview.collection
     );
     const { startIndex, query, limit } = options;
     const interview = await Interview.find(query)
