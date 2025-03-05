@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const User = require("./user");
+const Consultant = require("./consultant");
 const requirementSchema = new mongoose.Schema(
   {
     reqID: {
@@ -15,6 +16,11 @@ const requirementSchema = new mongoose.Schema(
     },
     appliedFor: {
       type: String,
+    },
+    appliedForRef: {
+      required: true,
+      type: mongoose.Schema.Types.ObjectId,
+      ref: Consultant,
     },
     assignedTo: {
       type: String,
