@@ -24,3 +24,6 @@ dist-ssr
 *.sw?
 
 gcp-storage-key.json
+
+config.env
+.env
