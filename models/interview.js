@@ -27,7 +27,6 @@ const interviewSchema = new mongoose.Schema(
       type: String,
     },
     consultantRef: {
-      required: true,
       type: mongoose.Schema.Types.ObjectId,
       ref: Consultant,
     },
@@ -35,7 +34,6 @@ const interviewSchema = new mongoose.Schema(
       type: String,
     },
     marketingPersonRef: {
-      required: true,
       type: mongoose.Schema.Types.ObjectId,
       ref: User,
     },

@@ -18,7 +18,6 @@ const requirementSchema = new mongoose.Schema(
       type: String,
     },
     appliedForRef: {
-      required: true,
       type: mongoose.Schema.Types.ObjectId,
       ref: Consultant,
     },
@@ -26,7 +25,6 @@ const requirementSchema = new mongoose.Schema(
       type: String,
     },
     assignedToRef: {
-      required: true,
       type: mongoose.Schema.Types.ObjectId,
       ref: User,
     },
