@@ -1,6 +1,7 @@
 import { Schema, model } from "mongoose";
 import { SalesLead } from "../interface/salesLead";
 import User from "./user";
+import mongoose from "mongoose";
 
 export const commentSchema = new Schema({
   name: { type: String, required: true },
@@ -52,6 +53,13 @@ const salesLeadSchema = new Schema<SalesLead>(
         "Bad Lead",
       ],
       default: "New",
+    },
+    assignedTo: {
+      type: String,
+    },
+    assignedToRef: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: User,
     },
     comments: { type: [commentSchema], default: [] },
   },
