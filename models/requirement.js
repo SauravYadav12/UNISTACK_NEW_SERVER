@@ -1,12 +1,13 @@
 const mongoose = require("mongoose");
 const User = require("./user");
 const Consultant = require("./consultant");
+
 const requirementSchema = new mongoose.Schema(
   {
     reqID: {
       type: String,
       unique: true,
-      default: () => `REQ-${new Date().getTime()}`,
+      required:true
     },
     reqStatus: {
       type: String,

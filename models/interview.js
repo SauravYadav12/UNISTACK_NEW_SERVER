@@ -6,7 +6,7 @@ const interviewSchema = new mongoose.Schema(
     intId: {
       type: String,
       unique: true,
-      default: () => `INT-${new Date().getTime()}`,
+      required:true
     },
     interviewDate: {
       type: String,

@@ -1,5 +1,6 @@
 const Teams = require("../models/teams");
 const { paginationInstance } = require("../utils/pagination");
+const { sequenceId } = require("../utils/utils");
 exports.getAllTeams = async (req, res) => {
   try {
     const { options, instance } = await paginationInstance(req.query, Teams);
@@ -24,11 +25,8 @@ exports.getAllTeams = async (req, res) => {
 
 exports.createTeam = async (req, res) => {
   try {
-    const lastTeam = await Teams.findOne().sort({ teamId: -1 });
-    const newTeamId = lastTeam ? lastTeam.teamId + 1 : 1;
-    req.body.teamId = newTeamId;
+    req.body.teamId = await sequenceId(Teams, "teamId", "TEAM");
     const team = await Teams.create(req.body);
-    console.log("Body", req.body);
     res.status(200).json({
       status: "success",
       data: team,

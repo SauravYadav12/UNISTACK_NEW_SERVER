@@ -1,96 +1,95 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
-
-const consultant = new mongoose.Schema({
-    consultantId:{
-        type: Number,
-        unique: true
+const consultant = new mongoose.Schema(
+  {
+    consultantId: {
+      type: String,
+      unique: true,
+      required: true,
     },
     consultantName: {
-        type: String,
+      type: String,
     },
-    consultantStatus:{
-        type:String,
+    consultantStatus: {
+      type: String,
     },
     visaStatus: {
-        type: String,
+      type: String,
     },
     currentAddress: {
-        type: String,
-    },  
-    previousAddress:{
-        type: String,
+      type: String,
     },
-    email:{
-        type:String,
+    previousAddress: {
+      type: String,
     },
-    phone:{
-        type:String,
+    email: {
+      type: String,
     },
-    skypeId:{
-        type:String
+    phone: {
+      type: String,
+    },
+    skypeId: {
+      type: String,
     },
     dob: {
-        type: Date,
+      type: Date,
     },
     ssn: {
-        type: String,
+      type: String,
     },
     dlNo: {
-        type: String,
+      type: String,
     },
     degree: {
-        type: String,
+      type: String,
     },
     university: {
-        type: String,
+      type: String,
     },
     yearPassing: {
-        type: String,
+      type: String,
     },
     timeZone: {
-        type: String,
+      type: String,
     },
     projects: [
-        {
-          projectNumber: { type: String },
-          projectName: { type: String },
-          projectCity: { type: String },
-          projectState: { type: String },
-          projectStartDate: { type: Date },
-          projectEndDate: { type: Date },
-          projectDescription: { type: String },
-        },
-      ],
-    psuedoName:{
-        type:String
+      {
+        projectNumber: { type: String },
+        projectName: { type: String },
+        projectCity: { type: String },
+        projectState: { type: String },
+        projectStartDate: { type: Date },
+        projectEndDate: { type: Date },
+        projectDescription: { type: String },
+      },
+    ],
+    psuedoName: {
+      type: String,
     },
-    getVisa:{
-        type: String
+    getVisa: {
+      type: String,
     },
-    cameToUsYear:{
-        type:String
+    cameToUsYear: {
+      type: String,
     },
-    originCountry:{
-        type: String
+    originCountry: {
+      type: String,
     },
-    lookingToChange:{
-        type:String
+    lookingToChange: {
+      type: String,
     },
     createdBy: {
-        type: String,
+      type: String,
     },
     updatedBy: {
-        type: String,
+      type: String,
     },
   },
   {
-    timestamps: true
-  });
+    timestamps: true,
+  }
+);
 
+const Consultant = mongoose.model("Consultant", consultant);
 
-  const Consultant = mongoose.model('Consultant',consultant);
-
-  module.exports = Consultant;
-
-
+module.exports = Consultant;

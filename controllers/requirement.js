@@ -1,5 +1,6 @@
 const Requirement = require("../models/requirement");
 const { paginationInstance } = require("../utils/pagination");
+const { sequenceId } = require("../utils/utils");
 
 exports.getAllRrequirements = async (req, res) => {
   try {
@@ -27,6 +28,7 @@ exports.getAllRrequirements = async (req, res) => {
 
 exports.createRequirement = async (req, res) => {
   try {
+    req.body.reqID = await sequenceId(Requirement, "reqID", "REQ");
     const requirement = await Requirement.create(req.body);
     res.status(200).json({
       status: "success",
