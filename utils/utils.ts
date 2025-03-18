@@ -1,3 +1,4 @@
+import { Model } from "mongoose";
 import { myDate } from "./dateUtil";
 
 export const handleDateQuery = (query: any) => {
@@ -24,4 +25,18 @@ export const handlePaginationQuery = (query: any) => {
   delete query.page;
   delete query.limit;
   return { query, page, limit, startIndex, endIndex };
+};
+
+export const sequenceId = async (
+  model: Model<any, {}, {}>,
+  field: string,
+  label: string = ""
+) => {
+  const lastDoc = await model.findOne({}, {}, { sort: { createdAt: -1 } });
+  let count = 1;
+  if (lastDoc && lastDoc[field]) {
+    count = parseInt(lastDoc[field].split("-")[1]) + 1 || 1;
+  }
+  const i = count < 10 ? "0" + count : count;
+  return `${label}-${i}`;
 };

@@ -1,35 +1,36 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
-
-const teams = new mongoose.Schema({
-    teamId:{
-        type: Number,
-        unique: true
+const teams = new mongoose.Schema(
+  {
+    teamId: {
+      type: String,
+      unique: true,
+      required:true
     },
     teamName: {
-        type: String,
+      type: String,
     },
-    contactPerson:{
-        type:String,
+    contactPerson: {
+      type: String,
     },
-    phone:{
-        type:String,
+    phone: {
+      type: String,
     },
     createdBy: {
-        type: String,
+      type: String,
     },
-    createdAt:{
-        type: Date,
+    createdAt: {
+      type: Date,
     },
     updatedAt: {
-        type: String,
+      type: String,
     },
   },
   {
-    timestamps: true
-  });
+    timestamps: true,
+  }
+);
 
+const Teams = mongoose.model("Teams", teams);
 
-  const Teams = mongoose.model('Teams',teams);
-
-  module.exports = Teams;
+module.exports = Teams;

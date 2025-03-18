@@ -1,5 +1,6 @@
 const Vendor = require("../models/vendor");
 const { paginationInstance } = require("../utils/pagination");
+const { sequenceId } = require("../utils/utils");
 exports.getAllInterviews = async (req, res) => {
   try {
     const { options, instance } = await paginationInstance(req.query, Vendor);
@@ -23,6 +24,7 @@ exports.getAllInterviews = async (req, res) => {
 
 exports.createInterview = async (req, res) => {
   try {
+    req.body.testID = await sequenceId(Vendor,'testID', "TEST");
     const interview = await Vendor.create(req.body);
     res.status(200).json({
       status: "success",

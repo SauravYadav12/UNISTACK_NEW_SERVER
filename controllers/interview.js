@@ -1,5 +1,6 @@
 const Interview = require("../models/interview");
 const { paginationInstance } = require("../utils/pagination");
+const { sequenceId } = require("../utils/utils");
 
 exports.getAllInterviews = async (req, res) => {
   try {
@@ -29,6 +30,7 @@ exports.getAllInterviews = async (req, res) => {
 
 exports.createInterview = async (req, res) => {
   try {
+    req.body.intId = await sequenceId(Interview, "intId", "INT");
     const interview = await Interview.create(req.body);
     res.status(200).json({
       status: "success",
