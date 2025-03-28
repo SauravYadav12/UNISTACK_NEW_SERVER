@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
-
+const { UserShift } = require("../interface/constants");
 const UserSchema = mongoose.Schema(
   {
     firstName: {
@@ -23,6 +23,10 @@ const UserSchema = mongoose.Schema(
       type: String,
       enum: ["super-admin", "admin", "user", "support", "marketing", "hr"],
       default: "user",
+    },
+    shift: {
+      type: String,
+      enum: Object.values(UserShift),
     },
     gender: {
       type: String,

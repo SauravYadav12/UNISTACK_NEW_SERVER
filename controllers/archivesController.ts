@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { archiveInterview, archiveRequirement } from "../db/archiveInstance";
+import { ArchiveInterview, ArchiveRequirement } from "../db/archiveInstance";
 import { paginationInstance, PaginationResult } from "../utils/pagination";
 
 export const getAllArchiveRequirements = async (
@@ -9,15 +9,14 @@ export const getAllArchiveRequirements = async (
   try {
     const { options, instance } = await paginationInstance(
       req.query,
-      archiveRequirement
+      ArchiveRequirement
     );
     const { startIndex, query, limit } = options;
-    const requirements = await archiveRequirement
+    const requirements = await ArchiveRequirement
       .find(query)
       .sort({ createdAt: -1 })
       .limit(limit)
-      .skip(startIndex)
-      .toArray();
+      .skip(startIndex).exec()
 
     const data: PaginationResult<any> = { ...instance, results: requirements };
 
@@ -36,15 +35,14 @@ export const getAllArchiveInterviews = async (req: Request, res: Response) => {
   try {
     const { options, instance } = await paginationInstance(
       req.query,
-      archiveInterview
+      ArchiveInterview
     );
     const { startIndex, query, limit } = options;
-    const interview = await archiveInterview
+    const interview = await ArchiveInterview
       .find(query)
       .sort({ createdAt: -1 })
       .limit(limit)
-      .skip(startIndex)
-      .toArray();
+      .skip(startIndex).exec()
 
     const data: PaginationResult<any> = { ...instance, results: interview };
 

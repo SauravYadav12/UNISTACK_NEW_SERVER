@@ -93,6 +93,7 @@ exports.login = async (req, res, next) => {
                 role: user.role,
                 active: user.active,
                 gender: user.gender,
+                shift: user.shift,
               },
             });
           } else {
