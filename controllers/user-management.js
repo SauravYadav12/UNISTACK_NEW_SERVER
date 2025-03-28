@@ -1,8 +1,10 @@
 const User = require("../models/user");
+const { handleDateQuery } = require("../utils/utils");
 
 exports.getAllUsers = async (req, res) => {
   try {
-    const users = await User.find().sort({ createdAt: -1 });
+    const q = handleDateQuery(req.query);
+    const users = await User.find(q).sort({ createdAt: -1 });
     res.status(200).json({
       status: "success",
       users,

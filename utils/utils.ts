@@ -1,12 +1,12 @@
 import { Model } from "mongoose";
 import { myDate } from "./dateUtil";
 
-export const handleDateQuery = (query: any) => {
+export const handleDateQuery = (query: any,fieldName='createdAt') => {
   const { fromDate, toDate } = query;
 
   if (fromDate || toDate) {
     const { from, to } = myDate(fromDate, toDate);
-    query.createdAt = {
+    query[fieldName] = {
       $gte: from,
       $lte: to,
     };
