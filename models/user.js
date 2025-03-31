@@ -27,6 +27,7 @@ const UserSchema = mongoose.Schema(
     shift: {
       type: String,
       enum: Object.values(UserShift),
+      default: UserShift.US,
     },
     gender: {
       type: String,
