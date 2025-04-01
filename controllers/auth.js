@@ -70,31 +70,36 @@ exports.login = async (req, res, next) => {
               ip,
               location,
             };
-            const r = await User.findByIdAndUpdate(
+            await User.findByIdAndUpdate(
               user._id,
               {
                 $push: { activity },
               },
               { new: true }
             );
-
-            const token = jwt.sign({ user }, process.env.JWT_SECRET_KEY, {
-              expiresIn: "10h",
-            });
+            const iUser = {
+              _id: user._id,
+              id: user._id,
+              firstName: user.firstName,
+              lastName: user.lastName,
+              corpName: user.corpName,
+              email: user.email,
+              premium: user.premium,
+              role: user.role,
+              active: user.active,
+              gender: user.gender,
+              shift: user.shift,
+            };
+            const token = jwt.sign(
+              { user: iUser },
+              process.env.JWT_SECRET_KEY,
+              {
+                expiresIn: "10h",
+              }
+            );
             res.status(200).json({
               token: "JWT " + token,
-              user: {
-                id: user._id,
-                firstName: user.firstName,
-                lastName: user.lastName,
-                corpName: user.corpName,
-                email: user.email,
-                premium: user.premium,
-                role: user.role,
-                active: user.active,
-                gender: user.gender,
-                shift: user.shift,
-              },
+              user: iUser,
             });
           } else {
             res.status(400).json({
