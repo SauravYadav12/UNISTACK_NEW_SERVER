@@ -23,13 +23,13 @@ export const getUserProfiles = async (req: Request, res: Response) => {
 
 export const createUserProfile = async (req: Request, res: Response) => {
   try {
-    let totalProfiles = await UserProfileModel.countDocuments();
+    let sequenceNumber = await UserProfileModel.countDocuments()+1;
     const date = new Date();
-    const month =
-      date.getMonth() < 10 ? `0${date.getMonth()}` : date.getMonth();
+    const m = date.getMonth() + 1;
+    const month = m < 10 ? `0${m}` : m;
     const day = date.getDate() < 10 ? `0${date.getDate()}` : date.getDate();
     const counter =
-      totalProfiles < 10 ? `0${totalProfiles}` : `${totalProfiles}`;
+      sequenceNumber < 10 ? `0${sequenceNumber}` : `${sequenceNumber}`;
     const employeeId = `UNI-${day}-${month}-${date.getFullYear()}/${counter}`;
     const newUserProfile = new UserProfileModel({
       ...req.body,
