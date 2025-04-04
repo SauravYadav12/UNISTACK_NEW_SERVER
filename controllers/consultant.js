@@ -27,7 +27,7 @@ exports.getAllConsultants = async (req, res) => {
 
 exports.createConsultant = async (req, res) => {
   try {
-    req.body.consultantId = await sequenceId(Consultant, "consultantId", "CON");
+    req.body.consultantId = await sequenceId(Consultant, "consultantId", "CNS");
     const consultant = await Consultant.create(req.body);
     res.status(200).json({
       status: "success",
