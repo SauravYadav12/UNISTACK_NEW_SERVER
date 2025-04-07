@@ -61,6 +61,7 @@ const consultant = new mongoose.Schema(
         projectStartDate: { type: Date },
         projectEndDate: { type: Date },
         projectDescription: { type: String },
+        isCurrent:Boolean
       },
     ],
     psuedoName: {
