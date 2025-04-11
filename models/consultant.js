@@ -32,7 +32,7 @@ const consultant = new mongoose.Schema(
       type: String,
     },
     dob: {
-      type: Date,
+      type: String,
     },
     ssn: {
       type: String,
