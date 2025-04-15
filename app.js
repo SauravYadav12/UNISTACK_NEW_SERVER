@@ -18,8 +18,8 @@ const { archiveRoute } = require("./routes/archivesRoute");
 const { attendanceRoute } = require("./routes/attendanceRoute");
 const { accessControlRoute } = require("./routes/accessControlRoute");
 const { leaveRoute } = require("./routes/leaveRoute");
-
 dotenv.config({ path: "./config.env" });
+
 
 const app = express();
 
