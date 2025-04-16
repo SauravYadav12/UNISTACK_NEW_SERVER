@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
-
+const User = require("./user");
+const Consultant = require("./consultant");
 const vendorSchema = new mongoose.Schema(
   {
     testID: {
@@ -25,8 +26,16 @@ const vendorSchema = new mongoose.Schema(
     consultant: {
       type: String,
     },
+    consultantRef: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: Consultant,
+    },
     marketingPerson: {
       type: String,
+    },
+    marketingPersonRef: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: User,
     },
     vendorCompany: {
       type: String,
