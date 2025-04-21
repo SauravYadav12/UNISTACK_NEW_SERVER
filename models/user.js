@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
-const { UserShift } = require("../interface/constants");
+const { UserShift, WorkLocation } = require("../interface/constants");
 const UserSchema = mongoose.Schema(
   {
     firstName: {
@@ -28,6 +28,11 @@ const UserSchema = mongoose.Schema(
       type: String,
       enum: Object.values(UserShift),
       default: UserShift.US,
+    },
+    workLocation: {
+      type: String,
+      enum: Object.values(WorkLocation),
+      default: WorkLocation.Office,
     },
     gender: {
       type: String,
