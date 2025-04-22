@@ -1,4 +1,5 @@
 const Requirement = require("../models/requirement");
+const { updateArrayFields } = require("../utils/arrayUpdateOprations");
 const { paginationInstance } = require("../utils/pagination");
 const { sequenceId } = require("../utils/utils");
 
@@ -44,14 +45,21 @@ exports.createRequirement = async (req, res) => {
 
 exports.updateRequirement = async (req, res) => {
   try {
-    const mComment = await Requirement.findByIdAndUpdate(
+    const arrayFields = ["mComment"];
+
+    const updateOps = updateArrayFields(req, arrayFields);
+
+    const nonArrayUpdates = { ...req.body };
+
+    const updatedReq = await Requirement.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      { ...nonArrayUpdates, ...updateOps },
       { new: true }
     );
+
     res.status(200).json({
       status: "success",
-      mComment,
+      data: updatedReq,
     });
   } catch (error) {
     res.status(400).json({
