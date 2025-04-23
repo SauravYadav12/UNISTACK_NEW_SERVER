@@ -61,8 +61,8 @@ const UserSchema = mongoose.Schema(
       type: Boolean,
       default: false,
     },
-    resetPasswordOtp: String,
-    resetPasswordOtpExpires: Date,
+    otp: String,
+    otpExpiry: Date,
     activity: [
       {
         loggedInAt: { type: Date },

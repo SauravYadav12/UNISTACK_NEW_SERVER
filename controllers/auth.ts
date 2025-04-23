@@ -1,0 +1,294 @@
+import jwt from "jsonwebtoken";
+import User from "../models/user";
+import jwtDecode from "jwt-decode";
+import randomString from "randomstring";
+import bcrypt from "bcryptjs";
+import {
+  loginOtpTemplate,
+  otpExpiryInMs,
+  resetPasswordOtpTemplate,
+  sendMail,
+} from "../utils/mailTransporter";
+import { Request, Response } from "express";
+
+// Signup funtion
+export const signup = (req: Request, res: Response) => {
+  try {
+    let newUser = new User({
+      firstName: req.body.firstName,
+      lastName: req.body.lastName,
+      email: req.body.email,
+      password: req.body.password,
+      corpName: req.body.corpName || "Unicodez",
+      gender: req.body.gender,
+    });
+
+    (User as any).addUser(newUser, (err: any, user: any) => {
+      if (err) {
+        res.status(400).json({
+          message: "Failed to create User Or User Already exists.",
+          error: err,
+        });
+      } else {
+        res.status(200).json({
+          message: "User Registration successful",
+          user: user,
+        });
+      }
+    });
+  } catch (error) {}
+};
+export const addLogoutActivity = async (req: Request, res: Response) => {
+  try {
+    const { ip, location, _id } = req.body;
+    const activity = {
+      loggedOutAt: new Date(),
+      ip,
+      location,
+    };
+    await User.findByIdAndUpdate(_id, { $push: { activity } }, { new: true });
+    res.status(200).json({ status: "success" });
+  } catch (error) {
+    res.status(400).json({ status: "failed" });
+  }
+};
+// Login funtion
+export const login = async (req: Request, res: Response) => {
+  (User as any).getUserByEmail(req.body.email, (err: any, user: any) => {
+    if (err) throw err;
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: "User Not found",
+      });
+    }
+
+    (User as any).comparePassword(
+      req.body.password,
+      user.password,
+      async (err: any, isMatch: boolean) => {
+        if (err) throw err;
+
+        if (isMatch) {
+          if (user.active) {
+            const { ip, location } = req.body;
+            const activity = {
+              loggedInAt: new Date(),
+              ip,
+              location,
+            };
+            await User.findByIdAndUpdate(
+              user._id,
+              {
+                $push: { activity },
+              },
+              { new: true }
+            );
+            const iUser = {
+              _id: user._id,
+              id: user._id,
+              firstName: user.firstName,
+              lastName: user.lastName,
+              corpName: user.corpName,
+              email: user.email,
+              premium: user.premium,
+              role: user.role,
+              active: user.active,
+              gender: user.gender,
+              shift: user.shift,
+            };
+            const token = jwt.sign(
+              { user: iUser },
+              process.env.JWT_SECRET_KEY || "unistack",
+              {
+                expiresIn: "10h",
+              }
+            );
+            res.status(200).json({
+              token: "JWT " + token,
+              user: iUser,
+            });
+          } else {
+            res.status(400).json({
+              message: "User is not active!",
+            });
+          }
+        } else {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid Password",
+          });
+        }
+      }
+    );
+  });
+};
+
+// Dashboard funtion
+export const dashboard = async (req: Request, res: Response) => {
+  // console.log(req.headers);
+  res.json({
+    status: "Success",
+    user: req.user,
+  });
+};
+
+// Validate funtion
+
+export const validate = (req: Request, res: Response) => {
+  // 1) Get the token and check if it exist
+
+  if (req.headers.authorization) {
+    let value = req.headers.authorization;
+    let [jwt, newToken] = value.split(" ");
+    // console.log(jwt);
+    // const token = newToken;
+    const decoded: any = jwtDecode(newToken);
+    //The User is Logged in.
+    res.json({
+      authenticated: true,
+      username: decoded?.user?.name,
+    });
+  } else {
+    res.json({
+      authenticated: false,
+      username: null,
+    });
+  }
+};
+
+export const resetPassword = async (req: Request, res: Response) => {
+  const { otp, email } = req.params;
+  const { password } = req.body;
+
+  if (!password) {
+    res.status(400).json({ message: "Passwords is required." });
+    return;
+  }
+
+  try {
+    const user = await User.findOne({
+      email,
+      otp,
+      otpExpiry: { $gt: Date.now() },
+    });
+
+    if (!user) {
+      res.status(400).json({ message: "Invalid or expired otp." });
+      return;
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    user.password = hashedPassword;
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+    await user.save();
+    res
+      .status(200)
+      .json({ message: "Password reset successfull", status: true });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: "Internal server error." });
+  }
+};
+
+export const verifyOtp = async (req: Request, res: Response) => {
+  const { otp, email } = req.params;
+
+  try {
+    const user = await User.findOne({
+      email,
+      otp: otp,
+      otpExpiry: { $gt: Date.now() },
+    });
+
+    if (!user) {
+      res.status(400).json({
+        message: "Invalid or expired otp.",
+        error: "Invalid or expired otp.",
+      });
+      return;
+    }
+
+    res
+      .status(200)
+      .json({ message: "verification successfull.", status: true });
+  } catch (error) {
+    res.status(500).json({ message: "Internal server error." });
+  }
+};
+
+const generateAndStoreOTP = async (email: string) => {
+  const user = await User.findOne({ email });
+  if (!user) {
+    return { error: "User not found." };
+  }
+
+  const otp = randomString.generate({
+    length: 6,
+    charset: "numeric",
+    readable: true,
+  });
+
+  const now = Date.now();
+  user.otp = otp;
+  user.otpExpiry = now + otpExpiryInMs;
+
+  await user.save();
+  return { otp };
+};
+
+export const sendOtpToResetPassword = async (req: Request, res: Response) => {
+  const { email } = req.params;
+
+  try {
+    const { error, otp } = await generateAndStoreOTP(email);
+    if (error || !otp) {
+      res.status(404).json({
+        message: "User with this email not found.",
+        error: "User not found",
+      });
+      return;
+    }
+    const mailOptions = {
+      from: "info@unicodez.com",
+      to: email,
+      subject: "One time password",
+      html: resetPasswordOtpTemplate(otp),
+    };
+
+    await sendMail(mailOptions);
+    res.status(200).json({ message: "One time password sent successfully." });
+  } catch (error) {
+    console.error("Send email error:", error);
+    res.status(500).json({ message: "Internal server error." });
+  }
+};
+export const sendOtpToLogin = async (req: Request, res: Response) => {
+  const { email } = req.params;
+
+  try {
+    const { error, otp } = await generateAndStoreOTP(email);
+    if (error || !otp) {
+      res.status(404).json({
+        message: "User with this email not found.",
+        error: "Not found",
+      });
+      return;
+    }
+    const mailOptions = {
+      from: "info@unicodez.com",
+      to: email,
+      subject: "One time password",
+      html: loginOtpTemplate(otp),
+    };
+
+    await sendMail(mailOptions);
+    res.status(200).json({ message: "One time password sent successfully." });
+  } catch (error) {
+    console.error("Send email error:", error);
+    res.status(500).json({ message: "Internal server error." });
+  }
+};
