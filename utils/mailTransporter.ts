@@ -3,10 +3,12 @@ import dotenv from "dotenv";
 import { MailOptions } from "nodemailer/lib/json-transport";
 dotenv.config({ path: "./config.env" });
 
-const pass = process.env.NODEMAILER_TRANSPORTER_PASS;
-const user = process.env.NODEMAILER_TRANSPORTER_USER;
-const host = process.env.NODEMAILER_TRANSPORTER_HOST;
+const pass = process.env.SMTP_PASS;
+const user = process.env.SMTP_USER;
+const host = process.env.SMTP_HOST;
+
 export const otpExpiryInMs = 1000 * 60 * 10; // 10 minutes
+
 if (!pass || !user || !host) {
   console.log("mail tranporter credentials error: missing credentials");
   console.log({ pass, user, host });
@@ -14,8 +16,8 @@ if (!pass || !user || !host) {
 
 const mailTransporter = nodemailer.createTransport({
   host,
-  port: 587,
-  secure: false,
+  port: Number(process.env.SMTP_PORT) || 465,
+  secure: true,
   auth: {
     user,
     pass,
@@ -32,16 +34,7 @@ mailTransporter.verify(function (error, success) {
 });
 
 export async function sendMail(mailOptions: MailOptions) {
-  return new Promise((resolve, reject) => {
-    mailTransporter.sendMail(mailOptions, (error, info) => {
-      if (error) {
-        console.log("Transporter error", error);
-        reject(error);
-        return;
-      }
-      resolve(info);
-    });
-  });
+  return await mailTransporter.sendMail(mailOptions);
 }
 
 export function resetPasswordOtpTemplate(
