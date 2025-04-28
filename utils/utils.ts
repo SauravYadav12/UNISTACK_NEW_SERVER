@@ -1,7 +1,13 @@
 import { Model } from "mongoose";
 import { myDate } from "./dateUtil";
+import moment from "moment";
 
-export const handleDateQuery = (query: any,fieldName='createdAt') => {
+export const attendanceDateFormate = "YYYY/MM/DD";
+
+export const isFormateValid = (d: any) =>
+  moment(d, attendanceDateFormate, true).isValid();
+
+export const handleDateQuery = (query: any, fieldName = "createdAt") => {
   const { fromDate, toDate } = query;
 
   if (fromDate || toDate) {
@@ -40,3 +46,25 @@ export const sequenceId = async (
   const i = count < 10 ? "0" + count : count;
   return `${label}-${i}`;
 };
+
+export function handleAttendanceDateQueryParams(query: any) {
+  const { fromDate, toDate } = query;
+  if (
+    (fromDate && !isFormateValid(fromDate)) ||
+    (toDate && !isFormateValid(toDate))
+  ) {
+    return { error: "Date formate should be " + attendanceDateFormate };
+  }
+  if (fromDate || toDate) {
+    const from = fromDate || moment().format(attendanceDateFormate);
+    const to = toDate || moment().format(attendanceDateFormate);
+    query.date = {
+      $gte: from,
+      $lte: to,
+    };
+    delete query.fromDate;
+    delete query.toDate;
+  }
+
+  return {query};
+}

@@ -1,5 +1,6 @@
 import { Schema, model } from "mongoose";
 import User from "./user";
+import { attendanceDateFormate, isFormateValid } from "../utils/utils";
 
 const attendanceSchema = new Schema(
   {
@@ -10,8 +11,14 @@ const attendanceSchema = new Schema(
     },
 
     date: {
-      type: Date,
-      default: Date.now,
+      type: String,
+      required: true,
+      validate: {
+        validator: function (value: string) {
+          return isFormateValid(value);
+        },
+        message: "Date must be in " + attendanceDateFormate + " format.",
+      },
     },
 
     checkIn: { type: Date, default: Date.now },
