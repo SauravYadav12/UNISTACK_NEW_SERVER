@@ -10,6 +10,7 @@ import {
   sendOtpToResetPassword,
   resetPassword,
   addLogoutActivity,
+  syncIUser,
 } from "../controllers/auth";
 import { getAllUsers, updateUser } from "../controllers/user-management";
 const usersRoute = express.Router();
@@ -33,6 +34,11 @@ usersRoute.post("/:email/reset-password/:otp", resetPassword);
 usersRoute.post("/logout", addLogoutActivity);
 
 //User Management
+usersRoute.get(
+  "/sync-iuser/:id",
+  passport.authenticate("jwt", { session: false }),
+  syncIUser
+);
 usersRoute.get(
   "/list",
   passport.authenticate("jwt", { session: false }),

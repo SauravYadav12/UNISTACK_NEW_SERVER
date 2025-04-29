@@ -11,6 +11,23 @@ import {
 } from "../utils/mailTransporter";
 import { Request, Response } from "express";
 
+export function extractIUser(user: any) {
+  return {
+    _id: user._id,
+    id: user._id,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    corpName: user.corpName,
+    email: user.email,
+    premium: user.premium,
+    role: user.role,
+    active: user.active,
+    gender: user.gender,
+    shift: user.shift,
+    workLocation: user.workLocation,
+  };
+}
+
 // Signup funtion
 export const signup = (req: Request, res: Response) => {
   try {
@@ -85,19 +102,7 @@ export const login = async (req: Request, res: Response) => {
               },
               { new: true }
             );
-            const iUser = {
-              _id: user._id,
-              id: user._id,
-              firstName: user.firstName,
-              lastName: user.lastName,
-              corpName: user.corpName,
-              email: user.email,
-              premium: user.premium,
-              role: user.role,
-              active: user.active,
-              gender: user.gender,
-              shift: user.shift,
-            };
+            const iUser = extractIUser(user);
             const token = jwt.sign(
               { user: iUser },
               process.env.JWT_SECRET_KEY || "unistack",
@@ -124,7 +129,30 @@ export const login = async (req: Request, res: Response) => {
     );
   });
 };
+export const syncIUser = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  try {
+    let user = await User.findOne({ _id: id });
+    if (!user) {
+      res.status(400).json({
+        status: "failed",
+        error: "User not found",
+      });
 
+      return;
+    }
+    user = extractIUser(user);
+    res.status(200).json({
+      status: "success",
+      user,
+    });
+  } catch (error) {
+    res.status(400).json({
+      status: "failed",
+      error,
+    });
+  }
+};
 // Dashboard funtion
 export const dashboard = async (req: Request, res: Response) => {
   // console.log(req.headers);
