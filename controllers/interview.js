@@ -47,7 +47,6 @@ exports.createInterview = async (req, res) => {
 exports.updateInterview = async (req, res) => {
   try {
     const id = req.params.id;
-    console.log("Incoming UPDATE request ID:", id);
     const data = await Interview.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
     });
