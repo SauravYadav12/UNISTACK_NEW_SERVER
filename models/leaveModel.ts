@@ -27,61 +27,64 @@ const dateValidator = {
   message: "Date must be in " + attendanceDateFormate + " format.",
 };
 
-const leaveSchema = new Schema({
-  userRef: {
-    required: true,
-    type: Schema.Types.ObjectId,
-    ref: User,
-  },
-  name: {
-    required: true,
-    type: String,
-  },
-  startDate: {
-    type: String,
-    required: true,
-    validate: dateValidator,
-  },
-  endDate: {
-    type: String,
-    required: true,
-    validate: dateValidator,
-  },
-  reason: { type: String, trim: true },
-  type: {
-    type: String,
-    enum: Object.values(LeaveType),
-    default: LeaveType.CasualLeave,
-  },
-  status: {
-    type: String,
-    enum: Object.values(LeaveStatus),
-    default: LeaveStatus.Pending,
-  },
-
-  respondBy: {
-    type: Schema.Types.ObjectId,
-    ref: User,
-  },
-  respondedAt: {
-    type: Date,
-  },
-  rejectionReason: {
-    type: String,
-    trim: true,
-  },
-  isHalfDay: {
-    type: Boolean,
-    default: false,
-  },
-  halfDayType: {
-    type: String,
-    enum: Object.values(HalfDayType),
-    required: function () {
-      return (this as any)?.isHalfDay;
+const leaveSchema = new Schema(
+  {
+    userRef: {
+      required: true,
+      type: Schema.Types.ObjectId,
+      ref: User,
     },
+    name: {
+      required: true,
+      type: String,
+    },
+    startDate: {
+      type: String,
+      required: true,
+      validate: dateValidator,
+    },
+    endDate: {
+      type: String,
+      required: true,
+      validate: dateValidator,
+    },
+    reason: { type: String, trim: true },
+    type: {
+      type: String,
+      enum: Object.values(LeaveType),
+      default: LeaveType.CasualLeave,
+    },
+    status: {
+      type: String,
+      enum: Object.values(LeaveStatus),
+      default: LeaveStatus.Pending,
+    },
+
+    respondBy: {
+      type: Schema.Types.ObjectId,
+      ref: User,
+    },
+    respondedAt: {
+      type: Date,
+    },
+    rejectionReason: {
+      type: String,
+      trim: true,
+    },
+    isHalfDay: {
+      type: Boolean,
+      default: false,
+    },
+    halfDayType: {
+      type: String,
+      enum: Object.values(HalfDayType),
+      required: function () {
+        return (this as any)?.isHalfDay;
+      },
+    },
+    attachments: [String],
   },
-  attachments: [String],
-});
+  { timestamps: true }
+);
 
 export const LeaveModel = model("Leave", leaveSchema);
