@@ -133,6 +133,7 @@ const vendorSchema = new mongoose.Schema(
     specialNote: {
       type: String,
     },
+    script: String,
   },
   {
     timestamps: true,
