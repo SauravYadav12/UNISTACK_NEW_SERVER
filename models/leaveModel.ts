@@ -1,5 +1,5 @@
 import { Schema, model } from "mongoose";
-import User from "./user";
+import { UserModel } from "./userModel";
 import { isFormateValid, attendanceDateFormate } from "../utils/utils";
 
 enum LeaveType {
@@ -32,7 +32,7 @@ const leaveSchema = new Schema(
     userRef: {
       required: true,
       type: Schema.Types.ObjectId,
-      ref: User,
+      ref: UserModel,
     },
     name: {
       required: true,
@@ -62,7 +62,7 @@ const leaveSchema = new Schema(
 
     respondBy: {
       type: Schema.Types.ObjectId,
-      ref: User,
+      ref: UserModel,
     },
     respondedAt: {
       type: Date,

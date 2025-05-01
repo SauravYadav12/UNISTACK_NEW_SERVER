@@ -1,5 +1,10 @@
 import jwt from "jsonwebtoken";
-import User from "../models/user";
+import {
+  addUser,
+  comparePassword,
+  getUserByEmail,
+  UserModel,
+} from "../models/userModel";
 import jwtDecode from "jwt-decode";
 import randomString from "randomstring";
 import bcrypt from "bcryptjs";
@@ -31,7 +36,7 @@ export function extractIUser(user: any) {
 // Signup funtion
 export const signup = (req: Request, res: Response) => {
   try {
-    let newUser = new User({
+    let newUser = new UserModel({
       firstName: req.body.firstName,
       lastName: req.body.lastName,
       email: req.body.email,
@@ -40,7 +45,7 @@ export const signup = (req: Request, res: Response) => {
       gender: req.body.gender,
     });
 
-    (User as any).addUser(newUser, (err: any, user: any) => {
+    addUser(newUser, (err: any, user: any) => {
       if (err) {
         res.status(400).json({
           message: "Failed to create User Or User Already exists.",
@@ -63,7 +68,11 @@ export const addLogoutActivity = async (req: Request, res: Response) => {
       ip,
       location,
     };
-    await User.findByIdAndUpdate(_id, { $push: { activity } }, { new: true });
+    await UserModel.findByIdAndUpdate(
+      _id,
+      { $push: { activity } },
+      { new: true }
+    );
     res.status(200).json({ status: "success" });
   } catch (error) {
     res.status(400).json({ status: "failed" });
@@ -71,7 +80,7 @@ export const addLogoutActivity = async (req: Request, res: Response) => {
 };
 // Login funtion
 export const login = async (req: Request, res: Response) => {
-  (User as any).getUserByEmail(req.body.email, (err: any, user: any) => {
+  getUserByEmail(req.body.email, (err: any, user: any) => {
     if (err) throw err;
 
     if (!user) {
@@ -81,7 +90,7 @@ export const login = async (req: Request, res: Response) => {
       });
     }
 
-    (User as any).comparePassword(
+    comparePassword(
       req.body.password,
       user.password,
       async (err: any, isMatch: boolean) => {
@@ -95,7 +104,7 @@ export const login = async (req: Request, res: Response) => {
               ip,
               location,
             };
-            await User.findByIdAndUpdate(
+            await UserModel.findByIdAndUpdate(
               user._id,
               {
                 $push: { activity },
@@ -132,7 +141,7 @@ export const login = async (req: Request, res: Response) => {
 export const syncIUser = async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
-    let user = await User.findOne({ _id: id });
+    let user = await UserModel.findOne({ _id: id });
     if (!user) {
       res.status(400).json({
         status: "failed",
@@ -196,7 +205,7 @@ export const resetPassword = async (req: Request, res: Response) => {
   }
 
   try {
-    const user = await User.findOne({
+    const user = await UserModel.findOne({
       email,
       otp,
       otpExpiry: { $gt: Date.now() },
@@ -226,7 +235,7 @@ export const verifyOtp = async (req: Request, res: Response) => {
   const { otp, email } = req.params;
 
   try {
-    const user = await User.findOne({
+    const user = await UserModel.findOne({
       email,
       otp: otp,
       otpExpiry: { $gt: Date.now() },
@@ -249,7 +258,7 @@ export const verifyOtp = async (req: Request, res: Response) => {
 };
 
 const generateAndStoreOTP = async (email: string) => {
-  const user = await User.findOne({ email });
+  const user = await UserModel.findOne({ email });
   if (!user) {
     return { error: "User not found." };
   }

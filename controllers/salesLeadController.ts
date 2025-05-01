@@ -1,9 +1,14 @@
 import { Request, Response } from "express";
-import { SalesLeadModel } from "../models/salesLead";
+import { SalesLeadModel } from "../models/salesLeadModel";
 import { paginationInstance } from "../utils/pagination";
+import {
+  handleSearchString,
+  searchableFields,
+} from "../utils/searchStringOperation";
 
 export const getSalesLeads = async (req: Request, res: Response) => {
   try {
+    const iQuery = handleSearchString(req.query, searchableFields.salesLead);
     const { options, instance } = await paginationInstance(
       req.query,
       SalesLeadModel

@@ -1,10 +1,11 @@
-const User = require("../models/user");
-const { handleDateQuery } = require("../utils/utils");
+import { Request, Response } from "express";
+import { UserModel } from "../models/userModel";
+import { handleDateQuery } from "../utils/utils";
 
-exports.getAllUsers = async (req, res) => {
+export const getAllUsers = async (req: Request, res: Response) => {
   try {
     const q = handleDateQuery(req.query);
-    const users = await User.find(q).sort({ createdAt: -1 });
+    const users = await UserModel.find(q).sort({ createdAt: -1 });
     res.status(200).json({
       status: "success",
       users,
@@ -17,9 +18,9 @@ exports.getAllUsers = async (req, res) => {
   }
 };
 
-exports.updateUser = async (req, res) => {
+export const updateUser = async (req: Request, res: Response) => {
   try {
-    const user = await User.findByIdAndUpdate(req.params.id, req.body, {
+    const user = await UserModel.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
     });
     res.status(200).json({

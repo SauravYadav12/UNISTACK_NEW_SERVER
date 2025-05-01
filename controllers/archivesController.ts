@@ -1,22 +1,27 @@
 import { Request, Response } from "express";
 import { ArchiveInterview, ArchiveRequirement } from "../db/archiveInstance";
 import { paginationInstance, PaginationResult } from "../utils/pagination";
+import {
+  handleSearchString,
+  searchableFields,
+} from "../utils/searchStringOperation";
 
 export const getAllArchiveRequirements = async (
   req: Request,
   res: Response
 ) => {
   try {
+    const iQuery = handleSearchString(req.query, searchableFields.requirement);
     const { options, instance } = await paginationInstance(
-      req.query,
+      iQuery,
       ArchiveRequirement
     );
     const { startIndex, query, limit } = options;
-    const requirements = await ArchiveRequirement
-      .find(query)
+    const requirements = await ArchiveRequirement.find(query)
       .sort({ createdAt: -1 })
       .limit(limit)
-      .skip(startIndex).exec()
+      .skip(startIndex)
+      .exec();
 
     const data: PaginationResult<any> = { ...instance, results: requirements };
 
@@ -33,16 +38,17 @@ export const getAllArchiveRequirements = async (
 
 export const getAllArchiveInterviews = async (req: Request, res: Response) => {
   try {
+    const iQuery = handleSearchString(req.query, searchableFields.interview);
     const { options, instance } = await paginationInstance(
-      req.query,
+      iQuery,
       ArchiveInterview
     );
     const { startIndex, query, limit } = options;
-    const interview = await ArchiveInterview
-      .find(query)
+    const interview = await ArchiveInterview.find(query)
       .sort({ createdAt: -1 })
       .limit(limit)
-      .skip(startIndex).exec()
+      .skip(startIndex)
+      .exec();
 
     const data: PaginationResult<any> = { ...instance, results: interview };
 

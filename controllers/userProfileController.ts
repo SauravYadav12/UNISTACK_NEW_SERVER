@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { UserProfileModel } from "../models/userProfile";
+import { UserProfileModel } from "../models/userProfileModel";
 import { paginationInstance } from "../utils/pagination";
 
 export const getUserProfiles = async (req: Request, res: Response) => {

@@ -1,5 +1,5 @@
 import { Schema, model } from "mongoose";
-import User from "./user";
+import { UserModel } from "./userModel";
 import { attendanceDateFormate, isFormateValid } from "../utils/utils";
 
 const attendanceSchema = new Schema(
@@ -7,7 +7,7 @@ const attendanceSchema = new Schema(
     userRef: {
       required: true,
       type: Schema.Types.ObjectId,
-      ref: User,
+      ref: UserModel,
     },
 
     date: {
