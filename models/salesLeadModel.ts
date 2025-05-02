@@ -1,11 +1,11 @@
 import { Schema, model } from "mongoose";
 import { SalesLead } from "../interface/salesLead";
-import User from "./user";
+import { UserModel } from "./userModel";
 import mongoose from "mongoose";
 
 export const commentSchema = new Schema({
   name: { type: String, required: true },
-  commentBy: { type: Schema.Types.ObjectId, ref: User, required: true },
+  commentBy: { type: Schema.Types.ObjectId, ref: UserModel, required: true },
   comment: { type: String, required: true },
   date: { type: Date, default: Date.now },
 });
@@ -59,7 +59,7 @@ const salesLeadSchema = new Schema<SalesLead>(
     },
     assignedToRef: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: User,
+      ref: UserModel,
     },
     comments: { type: [commentSchema], default: [] },
   },

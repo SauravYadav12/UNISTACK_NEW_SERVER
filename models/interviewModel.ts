@@ -1,9 +1,9 @@
-const mongoose = require("mongoose");
-const User = require("./user");
-const Consultant = require("./consultant");
-const vendorSchema = new mongoose.Schema(
+import mongoose from "mongoose";
+import { UserModel } from "./userModel";
+import { ConsultantModel } from "./consultantModel";
+const interviewSchema = new mongoose.Schema(
   {
-    testID: {
+    intId: {
       type: String,
       unique: true,
       required: true,
@@ -28,14 +28,14 @@ const vendorSchema = new mongoose.Schema(
     },
     consultantRef: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: Consultant,
+      ref: ConsultantModel,
     },
     marketingPerson: {
       type: String,
     },
     marketingPersonRef: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: User,
+      ref: UserModel,
     },
     vendorCompany: {
       type: String,
@@ -140,6 +140,4 @@ const vendorSchema = new mongoose.Schema(
   }
 );
 
-const Vendor = mongoose.model("Vendor", vendorSchema);
-
-module.exports = Vendor;
+export const InterviewModel = mongoose.model("Interview", interviewSchema);

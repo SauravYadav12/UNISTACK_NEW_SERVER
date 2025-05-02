@@ -1,15 +1,21 @@
-const Interview = require("../models/interview");
-const { paginationInstance } = require("../utils/pagination");
-const { sequenceId } = require("../utils/utils");
+import { Request, Response } from "express";
+import { InterviewModel } from "../models/interviewModel";
+import { paginationInstance } from "../utils/pagination";
+import { sequenceId } from "../utils/utils";
+import {
+  handleSearchString,
+  searchableFields,
+} from "../utils/searchStringOperation";
 
-exports.getAllInterviews = async (req, res) => {
+export const getAllInterviews = async (req: Request, res: Response) => {
   try {
+    const iQuery = handleSearchString(req.query, searchableFields.interview);
     const { options, instance } = await paginationInstance(
-      req.query,
-      Interview
+      iQuery,
+      InterviewModel
     );
     const { startIndex, query, limit } = options;
-    const interview = await Interview.find(query)
+    const interview = await InterviewModel.find(query)
       .sort({ createdAt: -1 })
       .limit(limit)
       .skip(startIndex)
@@ -28,10 +34,10 @@ exports.getAllInterviews = async (req, res) => {
   }
 };
 
-exports.createInterview = async (req, res) => {
+export const createInterview = async (req: Request, res: Response) => {
   try {
-    req.body.intId = await sequenceId(Interview, "intId", "INT");
-    const interview = await Interview.create(req.body);
+    req.body.intId = await sequenceId(InterviewModel, "intId", "INT");
+    const interview = await InterviewModel.create(req.body);
     res.status(200).json({
       status: "success",
       data: interview,
@@ -44,17 +50,22 @@ exports.createInterview = async (req, res) => {
   }
 };
 
-exports.updateInterview = async (req, res) => {
+export const updateInterview = async (req: Request, res: Response) => {
   try {
     const id = req.params.id;
-    const data = await Interview.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-    });
+    const data = await InterviewModel.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      {
+        new: true,
+      }
+    );
     if (!data) {
-      return res.status(404).json({
+      res.status(404).json({
         status: "failed",
         message: "Interview not found",
       });
+      return;
     }
     res.status(200).json({
       status: "success",
@@ -68,22 +79,23 @@ exports.updateInterview = async (req, res) => {
   }
 };
 
-exports.deleteInterview = async (req, res) => {
+export const deleteInterview = async (req: Request, res: Response) => {
   try {
     const id = req.params.id;
-    const deleteInterview = await Interview.findByIdAndDelete(id);
+    const deleteInterview = await InterviewModel.findByIdAndDelete(id);
     if (!deleteInterview) {
-      return res.status(404).json({
+      res.status(404).json({
         status: "failed",
         message: "Interview not found",
       });
+      return;
     }
     res.status(200).json({
       status: "success",
       message: "Interview deleted successfully",
       deleteInterview,
     });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({
       status: "failed",
       error: error.message,

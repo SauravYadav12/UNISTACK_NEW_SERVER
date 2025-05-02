@@ -1,6 +1,6 @@
 import { Schema, model } from "mongoose";
 
-import User from "./user";
+import { UserModel } from "./userModel";
 import {
   Address,
   BankDetails,
@@ -71,7 +71,7 @@ const userProfileSchema = new Schema<UserProfile>(
       unique: true,
       required: true,
       type: Schema.Types.ObjectId,
-      ref: User,
+      ref: UserModel,
     },
     employeeId: {
       unique: true,

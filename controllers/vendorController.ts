@@ -1,11 +1,21 @@
-const Vendor = require("../models/vendor");
-const { paginationInstance } = require("../utils/pagination");
-const { sequenceId } = require("../utils/utils");
-exports.getAllInterviews = async (req, res) => {
+import { Request, Response } from "express";
+import { VendorModel } from "../models/vendorModel";
+import { paginationInstance } from "../utils/pagination";
+import { sequenceId } from "../utils/utils";
+import {
+  handleSearchString,
+  searchableFields,
+} from "../utils/searchStringOperation";
+
+export const getAllInterviews = async (req: Request, res: Response) => {
   try {
-    const { options, instance } = await paginationInstance(req.query, Vendor);
+    const iQuery = handleSearchString(
+      req.query,
+      searchableFields.vendorInterview
+    );
+    const { options, instance } = await paginationInstance(iQuery, VendorModel);
     const { startIndex, query, limit } = options;
-    const interviews = await Vendor.find(query)
+    const interviews = await VendorModel.find(query)
       .sort({ createdAt: -1 })
       .limit(limit)
       .skip(startIndex)
@@ -22,10 +32,10 @@ exports.getAllInterviews = async (req, res) => {
   }
 };
 
-exports.createInterview = async (req, res) => {
+export const createInterview = async (req: Request, res: Response) => {
   try {
-    req.body.testID = await sequenceId(Vendor,'testID', "TEST");
-    const interview = await Vendor.create(req.body);
+    req.body.testID = await sequenceId(VendorModel, "testID", "TEST");
+    const interview = await VendorModel.create(req.body);
     res.status(200).json({
       status: "success",
       data: interview,
@@ -38,17 +48,18 @@ exports.createInterview = async (req, res) => {
   }
 };
 
-exports.updateInterview = async (req, res) => {
+export const updateInterview = async (req: Request, res: Response) => {
   try {
     const id = req.params.id;
-    const data = await Vendor.findByIdAndUpdate(req.params.id, req.body, {
+    const data = await VendorModel.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
     });
     if (!data) {
-      return res.status(404).json({
+      res.status(404).json({
         status: "failed",
         message: "Vendor Interview not found",
       });
+      return;
     }
     res.status(200).json({
       status: "success",
@@ -62,22 +73,23 @@ exports.updateInterview = async (req, res) => {
   }
 };
 
-exports.deleteInterview = async (req, res) => {
+export const deleteInterview = async (req: Request, res: Response) => {
   try {
     const id = req.params.id;
-    const deleteInterview = await Vendor.findByIdAndDelete(id);
+    const deleteInterview = await VendorModel.findByIdAndDelete(id);
     if (!deleteInterview) {
-      return res.status(404).json({
+      res.status(404).json({
         status: "failed",
         message: "Vendor Interview not found",
       });
+      return;
     }
     res.status(200).json({
       status: "success",
       message: "Vendor Interview deleted successfully",
       deleteInterview,
     });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({
       status: "failed",
       error: error.message,

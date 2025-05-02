@@ -5,13 +5,13 @@ import passport from "passport";
 import mongoose from "mongoose";
 import { usersRoute } from "./routes/usersRoute";
 import dotenv from "dotenv";
-import requirements from "./routes/requirements";
-import interviews from "./routes/interviews";
-import vendors from "./routes/vendors";
-import consultants from "./routes/consultants";
+import { requirementRoute } from "./routes/requirementsRoute";
+import { interviewRoute } from "./routes/interviewsRoute";
+import { vendorsRoute } from "./routes/vendorsRoute";
+import { consultantRoute } from "./routes/consultantsRoute";
 import { userProfileRoute } from "./routes/userProfileRoute";
 import { storageRoute } from "./routes/storageRoute";
-import teams from "./routes/teams";
+import { teamsRoute } from "./routes/teamsRoute";
 import { salesLeadRoute } from "./routes/salesLeadRoute";
 import { reportRoute } from "./routes/reportRoute";
 import { archiveRoute } from "./routes/archivesRoute";
@@ -52,14 +52,14 @@ mongoose
 
 //User Routes
 app.use("/users", usersRoute);
-app.use("/requirements", requirements);
-app.use("/interviews", interviews);
-app.use("/vendors", vendors);
-app.use("/consultants", consultants);
+app.use("/requirements", requirementRoute);
+app.use("/interviews", interviewRoute);
+app.use("/vendors", vendorsRoute);
+app.use("/consultants", consultantRoute);
 app.use("/user-profiles", userProfileRoute);
 app.use("/storage", storageRoute);
 app.use("/sales-leads", salesLeadRoute);
-app.use("/teams", teams);
+app.use("/teams", teamsRoute);
 app.use("/reports", reportRoute);
 app.use("/archives", archiveRoute);
 app.use("/attendance", attendanceRoute);

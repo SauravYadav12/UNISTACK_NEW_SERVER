@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import Requirement from "../models/requirement";
+import { RequirementModel } from "../models/requirementModel";
 import {
   InterviewReport,
   InterviewStatus,
@@ -7,8 +7,8 @@ import {
   PositionReport,
   RequirementStatus,
 } from "../interface/interfaces";
-import Interview from "../models/interview";
-import User from "../models/user";
+import { InterviewModel } from "../models/interviewModel";
+import { UserModel } from "../models/userModel";
 import { myDate } from "../utils/dateUtil";
 
 const reqStatusList: RequirementStatus[] = [
@@ -133,9 +133,9 @@ export const getSupportReport = async (req: Request, res: Response) => {
   try {
     let { fromDate, toDate } = req.query;
     const { from, to } = myDate(fromDate, toDate);
-    const supports = await User.find({ role: "support" });
-    const ids = supports.map((s) => s._id);
-    const positions = await Requirement.find({
+    const supports = await UserModel.find({ role: "support" });
+    const ids = supports.map((s: any) => s._id);
+    const positions = await RequirementModel.find({
       createdAt: {
         $gte: from,
         $lte: to,
@@ -163,9 +163,9 @@ export const getMarketingReport = async (req: Request, res: Response) => {
   try {
     let { fromDate, toDate } = req.query;
     const { from, to } = myDate(fromDate, toDate);
-    const marketing = await User.find({ role: "marketing" });
-    const ids = marketing.map((s) => s._id);
-    const positions = await Requirement.find({
+    const marketing = await UserModel.find({ role: "marketing" });
+    const ids = marketing.map((s: any) => s._id);
+    const positions = await RequirementModel.find({
       createdAt: {
         $gte: from,
         $lte: to,
@@ -190,9 +190,9 @@ export const getInterviewReport = async (req: Request, res: Response) => {
   try {
     let { fromDate, toDate } = req.query;
     const { from, to } = myDate(fromDate, toDate);
-    const marketing = await User.find({ role: "marketing" });
-    const ids = marketing.map((s) => s._id);
-    const interviews = await Interview.find({
+    const marketing = await UserModel.find({ role: "marketing" });
+    const ids = marketing.map((s: any) => s._id);
+    const interviews = await InterviewModel.find({
       createdAt: {
         $gte: from,
         $lte: to,
@@ -217,15 +217,14 @@ export const getInterviewReport = async (req: Request, res: Response) => {
   }
 };
 
-
 export const getDashboardReport = async (req: Request, res: Response) => {
   try {
     const reportPromises = [
-      User.countDocuments(),
-      User.countDocuments({ active: true }),
-      Requirement.countDocuments(),
-      Interview.countDocuments(),
-      Interview.countDocuments({
+      UserModel.countDocuments(),
+      UserModel.countDocuments({ active: true }),
+      RequirementModel.countDocuments(),
+      InterviewModel.countDocuments(),
+      InterviewModel.countDocuments({
         interviewStatus: "Interview Confirm",
       }),
     ];
@@ -253,4 +252,3 @@ export const getDashboardReport = async (req: Request, res: Response) => {
     });
   }
 };
-

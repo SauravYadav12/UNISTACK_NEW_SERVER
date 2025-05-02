@@ -1,13 +1,13 @@
-const mongoose = require("mongoose");
-const User = require("./user");
-const Consultant = require("./consultant");
+import mongoose from "mongoose";
+import { UserModel } from "./userModel";
+import { ConsultantModel } from "./consultantModel";
 
 const requirementSchema = new mongoose.Schema(
   {
     reqID: {
       type: String,
       unique: true,
-      required:true
+      required: true,
     },
     reqStatus: {
       type: String,
@@ -20,14 +20,14 @@ const requirementSchema = new mongoose.Schema(
     },
     appliedForRef: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: Consultant,
+      ref: ConsultantModel,
     },
     assignedTo: {
       type: String,
     },
     assignedToRef: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: User,
+      ref: UserModel,
     },
     resume: {
       type: String,
@@ -122,7 +122,7 @@ const requirementSchema = new mongoose.Schema(
     reqEnteredByRef: {
       required: true,
       type: mongoose.Schema.Types.ObjectId,
-      ref: User,
+      ref: UserModel,
     },
     reqKeywords: {
       type: String,
@@ -160,6 +160,7 @@ const requirementSchema = new mongoose.Schema(
   }
 );
 
-const Requirement = mongoose.model("Requirement", requirementSchema);
-
-module.exports = Requirement;
+export const RequirementModel = mongoose.model(
+  "Requirement",
+  requirementSchema
+);
