@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { UserModel } from "./userModel";
 import { ConsultantModel } from "./consultantModel";
+import { TeamsModel } from "./teamsModel";
 const interviewSchema = new mongoose.Schema(
   {
     intId: {
@@ -84,6 +85,10 @@ const interviewSchema = new mongoose.Schema(
     },
     candidateName: {
       type: String,
+    },
+    candidateRef: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: TeamsModel,
     },
     rateForInterview: {
       type: String,
