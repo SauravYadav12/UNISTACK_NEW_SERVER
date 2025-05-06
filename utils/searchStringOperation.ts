@@ -7,10 +7,17 @@ interface RegexQueries {
 
 export function handleSearchString(query: any, searchFields: string[]) {
   let searchString: string[] | string | undefined = query.searchString;
+  let qSearchFields: string[] | string | undefined = query.searchField;
 
   if (!searchString || !searchString.length) return query;
 
   searchString = Array.isArray(searchString) ? searchString : [searchString];
+
+  if (qSearchFields?.length) {
+    searchFields = Array.isArray(qSearchFields)
+      ? qSearchFields
+      : [qSearchFields];
+  }
 
   const orQueries: RegexQueries[] = [];
 
@@ -23,6 +30,7 @@ export function handleSearchString(query: any, searchFields: string[]) {
 
   query.$or = orQueries;
   delete query.searchString;
+  delete query.searchField;
 
   return query;
 }
