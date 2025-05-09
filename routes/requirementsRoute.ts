@@ -4,6 +4,8 @@ import {
   createRequirement,
   updateRequirement,
   deleteRequirement,
+  createRequirementLog,
+  getRequirementLog,
 } from "../controllers/requirementController";
 const requirementRoute = express.Router();
 import passport from "passport";
@@ -30,6 +32,21 @@ requirementRoute.delete(
   "/delete-requirement/:id",
   passport.authenticate("jwt", { session: false }),
   deleteRequirement
+);
+
+
+// -------------------logs-----------------
+
+requirementRoute.get(
+  "/get-log",
+  passport.authenticate("jwt", { session: false }),
+  getRequirementLog
+);
+
+requirementRoute.post(
+  "/create-log",
+  passport.authenticate("jwt", { session: false }),
+  createRequirementLog
 );
 
 export { requirementRoute };

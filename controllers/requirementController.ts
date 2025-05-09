@@ -5,8 +5,9 @@ import {
   handleSearchString,
   searchableFields,
 } from "../utils/searchStringOperation";
-import { sequenceId } from "../utils/utils";
+import { handleDateQuery, sequenceId } from "../utils/utils";
 import { RequirementModel } from "../models/requirementModel";
+import RequirementLogModel from "../models/requirement.log.model";
 
 export const getAllRrequirements = async (req: Request, res: Response) => {
   try {
@@ -97,6 +98,37 @@ export const deleteRequirement = async (req: Request, res: Response) => {
     res.status(500).json({
       status: "failed",
       error: error.message,
+    });
+  }
+};
+
+export const getRequirementLog = async (req: Request, res: Response) => {
+  try {
+    const q = handleDateQuery(req.query);
+    const data = await RequirementLogModel.find(q).sort({ createdAt: -1 });
+    res.status(200).json({
+      status: "success",
+      data,
+    });
+  } catch (error) {
+    res.status(400).json({
+      status: "failed",
+      error,
+    });
+  }
+};
+
+export const createRequirementLog = async (req: Request, res: Response) => {
+  try {
+    const data = await RequirementLogModel.create(req.body);
+    res.status(200).json({
+      status: "success",
+      data,
+    });
+  } catch (error) {
+    console.log(error);
+    res.status(400).json({
+      status: "failed",
     });
   }
 };
