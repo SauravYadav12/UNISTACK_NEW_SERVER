@@ -18,10 +18,11 @@ import { archiveRoute } from "./routes/archivesRoute";
 import { attendanceRoute } from "./routes/attendanceRoute";
 import { accessControlRoute } from "./routes/accessControlRoute";
 import { leaveRoute } from "./routes/leaveRoute";
+import morgan from "morgan";
 dotenv.config({ path: "./config.env" });
 
 const app = express();
-
+app.use(morgan("dev"));
 //Body Parser
 app.use(express.json());
 //CORS Middleware
