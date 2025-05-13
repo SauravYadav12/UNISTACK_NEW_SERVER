@@ -3,6 +3,7 @@ import { myDate } from "./dateUtil";
 import moment from "moment";
 
 export const attendanceDateFormate = "YYYY/MM/DD";
+export const stringDateFormate = attendanceDateFormate;
 
 export const isFormateValid = (d: any) =>
   moment(d, attendanceDateFormate, true).isValid();
@@ -66,5 +67,5 @@ export function handleAttendanceDateQueryParams(query: any) {
     delete query.toDate;
   }
 
-  return {query};
+  return { query };
 }
