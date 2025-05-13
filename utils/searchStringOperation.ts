@@ -24,7 +24,13 @@ export function handleSearchString(query: any, searchFields: string[]) {
       : [qSearchFields];
   }
 
-  function applyQuery(field: string, val: string) {
+  function applyQuery(
+    field: string,
+    val: string,
+    options?: {
+      caseInsensitiveExactMatch: boolean;
+    }
+  ) {
     if (dateFields.includes(field)) {
       const { from, to } = myDate(val, val);
       orQueries.push({
@@ -38,7 +44,11 @@ export function handleSearchString(query: any, searchFields: string[]) {
         [field]: moment(val).format(stringDateFormate),
       });
     } else {
-      orQueries.push({ [field]: { $regex: val, $options: "i" } });
+      if (options?.caseInsensitiveExactMatch) {
+        orQueries.push({ [field]: { $regex: `^${val}$`, $options: "i" } });
+      } else {
+        orQueries.push({ [field]: { $regex: val, $options: "i" } });
+      }
     }
   }
 
@@ -50,7 +60,7 @@ export function handleSearchString(query: any, searchFields: string[]) {
 
   caseInsensitiveFields.forEach((field) => {
     if (query?.hasOwnProperty?.(field)) {
-      applyQuery(field, query[field]);
+      applyQuery(field, query[field], { caseInsensitiveExactMatch: true });
 
       delete query[field];
     }
