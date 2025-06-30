@@ -90,10 +90,10 @@ const vendorSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: TeamsModel,
     },
-    rateForInterview: {
+    teckStack: {
       type: String,
     },
-    paymentStatus: {
+    developerName: {
       type: String,
     },
     recordOwner: {
