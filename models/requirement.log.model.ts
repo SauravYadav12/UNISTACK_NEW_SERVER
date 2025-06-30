@@ -32,13 +32,7 @@ const RequirementLogSchema: Schema<RequirementLogDocument> = new Schema(
       ref: UserModel,
       required: true,
     },
-    oldData: {
-      type: Schema.Types.Mixed,
-    },
     newData: {
-      type: Schema.Types.Mixed,
-    },
-    changeDetails: {
       type: Schema.Types.Mixed,
     },
   },

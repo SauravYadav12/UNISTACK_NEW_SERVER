@@ -5,24 +5,18 @@ const teams = new mongoose.Schema(
     teamId: {
       type: String,
       unique: true,
-      required:true
+      required: true,
     },
     teamName: {
       type: String,
     },
-    contactPerson: {
+    teckStack: {
       type: String,
     },
-    phone: {
+    developerName: {
       type: String,
     },
     createdBy: {
-      type: String,
-    },
-    createdAt: {
-      type: Date,
-    },
-    updatedAt: {
       type: String,
     },
   },
@@ -32,4 +26,3 @@ const teams = new mongoose.Schema(
 );
 
 export const TeamsModel = mongoose.model("Teams", teams);
-

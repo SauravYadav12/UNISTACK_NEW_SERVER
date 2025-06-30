@@ -116,7 +116,7 @@ export const searchableFields = {
     "university",
     "createdBy",
   ],
-  team: ["teamId", "teamName", "contactPerson", "phone", "createdBy"],
+  team: ["teamId", "teamName", "teckStack", "developerName", "createdBy"],
   salesLead: [
     "firstName",
     "lastName",
