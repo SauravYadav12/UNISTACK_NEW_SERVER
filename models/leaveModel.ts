@@ -15,12 +15,12 @@ enum LeaveStatus {
   Rejected = "Rejected",
 }
 
-enum HalfDayType {
+export enum HalfDayType {
   FirstHalf = "First Half",
   SecondHalf = "Second Half",
 }
 
-const dateValidator = {
+export const dateValidator = {
   validator: function (value: string) {
     return isFormateValid(value);
   },
