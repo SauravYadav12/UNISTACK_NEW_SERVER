@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import { UserShift, WorkLocation } from "../interface/constants";
+import { UserRole } from "../enums/UserEnum";
 const UserSchema = new mongoose.Schema(
   {
     firstName: {
@@ -21,8 +22,8 @@ const UserSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ["super-admin", "admin", "user", "support", "marketing", "hr"],
-      default: "user",
+      enum: Object.values(UserRole),
+      default: UserRole.User,
     },
     shift: {
       type: String,

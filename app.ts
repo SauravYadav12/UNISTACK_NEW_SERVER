@@ -19,6 +19,7 @@ import { attendanceRoute } from "./routes/attendanceRoute";
 import { accessControlRoute } from "./routes/accessControlRoute";
 import { leaveRoute } from "./routes/leaveRoute";
 import morgan from "morgan";
+import { holidayRoute } from "./routes/holidayRoutes";
 dotenv.config({ path: "./config.env" });
 
 const app = express();
@@ -66,6 +67,7 @@ app.use("/archives", archiveRoute);
 app.use("/attendance", attendanceRoute);
 app.use("/access-control", accessControlRoute);
 app.use("/leaves", leaveRoute);
+app.use("/holidays", holidayRoute);
 
 //PORT
 const port = process.env.PORT || 5000;
