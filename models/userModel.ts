@@ -2,6 +2,9 @@ import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import { UserShift, WorkLocation } from "../interface/constants";
 import { UserRole } from "../enums/UserEnum";
+
+export const allowdDomains = ["unicodez.com", "team.unicodez.com"];
+
 const UserSchema = new mongoose.Schema(
   {
     firstName: {
@@ -15,6 +18,13 @@ const UserSchema = new mongoose.Schema(
       unique: true,
       lowercase: true,
       required: true,
+      validate: {
+        validator: function (email: string) {
+          const domain = email?.split("@")[1];
+          return allowdDomains.includes(domain);
+        },
+        message: (props: any) => `${props.value} invalid email!`,
+      },
     },
     password: {
       type: String,
