@@ -30,6 +30,7 @@ export function extractIUser(user: any) {
     gender: user.gender,
     shift: user.shift,
     workLocation: user.workLocation,
+    canEdit: user.canEdit,
   };
 }
 
