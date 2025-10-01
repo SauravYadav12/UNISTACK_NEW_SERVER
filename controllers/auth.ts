@@ -113,15 +113,8 @@ export const login = async (req: Request, res: Response) => {
               { new: true }
             );
             const iUser = extractIUser(user);
-            const token = jwt.sign(
-              { user: iUser },
-              process.env.JWT_SECRET_KEY || "unistack",
-              {
-                expiresIn: "10h",
-              }
-            );
+
             res.status(200).json({
-              token: "JWT " + token,
               user: iUser,
             });
           } else {
@@ -175,15 +168,11 @@ export const dashboard = async (req: Request, res: Response) => {
 // Validate funtion
 
 export const validate = (req: Request, res: Response) => {
-  // 1) Get the token and check if it exist
-
   if (req.headers.authorization) {
     let value = req.headers.authorization;
     let [jwt, newToken] = value.split(" ");
-    // console.log(jwt);
-    // const token = newToken;
+
     const decoded: any = jwtDecode(newToken);
-    //The User is Logged in.
     res.json({
       authenticated: true,
       username: decoded?.user?.name,
@@ -250,9 +239,20 @@ export const verifyOtp = async (req: Request, res: Response) => {
       return;
     }
 
-    res
-      .status(200)
-      .json({ message: "verification successfull.", status: true });
+    const iUser = extractIUser(user);
+    const token = jwt.sign(
+      { user: iUser },
+      process.env.JWT_SECRET_KEY || "unistack",
+      {
+        expiresIn: "10h",
+      }
+    );
+
+    res.status(200).json({
+      token: "JWT " + token,
+      message: "verification successfull.",
+      status: true,
+    });
   } catch (error) {
     res.status(500).json({ message: "Internal server error." });
   }

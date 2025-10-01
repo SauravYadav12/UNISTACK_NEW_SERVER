@@ -133,7 +133,7 @@ export const getSupportReport = async (req: Request, res: Response) => {
   try {
     let { fromDate, toDate } = req.query;
     const { from, to } = myDate(fromDate, toDate);
-    const supports = await UserModel.find({ role: "support" });
+    const supports = await UserModel.find({ role: "support", active: true });
     const ids = supports.map((s: any) => s._id);
     const positions = await RequirementModel.find({
       createdAt: {
@@ -163,7 +163,7 @@ export const getMarketingReport = async (req: Request, res: Response) => {
   try {
     let { fromDate, toDate } = req.query;
     const { from, to } = myDate(fromDate, toDate);
-    const marketing = await UserModel.find({ role: "marketing" });
+    const marketing = await UserModel.find({ role: "marketing", active: true });
     const ids = marketing.map((s: any) => s._id);
     const positions = await RequirementModel.find({
       createdAt: {
@@ -190,7 +190,7 @@ export const getInterviewReport = async (req: Request, res: Response) => {
   try {
     let { fromDate, toDate } = req.query;
     const { from, to } = myDate(fromDate, toDate);
-    const marketing = await UserModel.find({ role: "marketing" });
+    const marketing = await UserModel.find({ role: "marketing", active: true });
     const ids = marketing.map((s: any) => s._id);
     const interviews = await InterviewModel.find({
       createdAt: {
