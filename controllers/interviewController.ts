@@ -16,7 +16,7 @@ export const getAllInterviews = async (req: Request, res: Response) => {
     );
     const { startIndex, query, limit } = options;
     const interview = await InterviewModel.find(query)
-      .sort({ createdAt: -1 })
+      .sort({ interviewDate: -1 })
       .limit(limit)
       .skip(startIndex)
       .exec();

@@ -16,7 +16,7 @@ export const getAllInterviews = async (req: Request, res: Response) => {
     const { options, instance } = await paginationInstance(iQuery, VendorModel);
     const { startIndex, query, limit } = options;
     const interviews = await VendorModel.find(query)
-      .sort({ createdAt: -1 })
+      .sort({ interviewDate: -1 })
       .limit(limit)
       .skip(startIndex)
       .exec();
