@@ -7,6 +7,31 @@ import {
   searchableFields,
 } from "../utils/searchStringOperation";
 
+function sortProjectsOfConsultant(consultant: any[]) {
+  try {
+    const consultantWithSortedProjects = consultant.map((cons: any) => {
+      const consultantObj = cons.toObject();
+      if (consultantObj.projects && consultantObj.projects.length > 0) {
+        consultantObj.projects.sort((a: any, b: any) => {
+          const startDateA = a.projectStartDate
+            ? new Date(a.projectStartDate).getTime()
+            : 0;
+          const startDateB = b.projectStartDate
+            ? new Date(b.projectStartDate).getTime()
+            : 0;
+          return startDateB - startDateA;
+        });
+      }
+      return consultantObj;
+    });
+
+    return consultantWithSortedProjects;
+  } catch (error) {
+    console.error("Error sorting projects of consultant:", error);
+  }
+  return consultant;
+}
+
 export const getAllConsultants = async (req: Request, res: Response) => {
   try {
     const iQuery = handleSearchString(req.query, searchableFields.consultant);
@@ -20,7 +45,8 @@ export const getAllConsultants = async (req: Request, res: Response) => {
       .limit(limit)
       .skip(startIndex)
       .exec();
-    const data = { ...instance, results: consultant };
+    const consultantWithSortedProjects = sortProjectsOfConsultant(consultant);
+    const data = { ...instance, results: consultantWithSortedProjects };
     res.status(200).json({
       status: "success",
       data,
@@ -54,7 +80,6 @@ export const createConsultant = async (req: Request, res: Response) => {
 
 export const updateConsultant = async (req: Request, res: Response) => {
   try {
-    const id = req.params.id;
     const data = await ConsultantModel.findByIdAndUpdate(
       req.params.id,
       req.body,
