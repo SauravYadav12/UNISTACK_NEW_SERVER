@@ -47,6 +47,7 @@ const pushAccountsWithZeroRecords = (
 const sortSupportRecords = (positions: any[]) => {
   let positionSorted: PositionReport[] = [];
   for (let req of positions) {
+     if(!!req.duplicateWith) continue; // skip duplicate positions
     const i = positionSorted.findIndex((e) => e.name === req.reqEnteredBy);
     let info: PositionReport = i > -1 ? positionSorted[i] : {};
 
