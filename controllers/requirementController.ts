@@ -135,12 +135,20 @@ export const createRequirementLog = async (req: Request, res: Response) => {
 
 export const requirementsCounts = async (req: Request, res: Response) => {
   try {
-    let { date } = req.query;
+    let { date, timezone = "Asia/Kolkata" } = req.query;
 
     if (!date) {
       res.status(400).json({
         status: "failed",
         message: "Date query is required",
+      });
+      return;
+    }
+
+    if (typeof timezone !== "string") {
+      res.status(400).json({
+        status: "failed",
+        message: "Timezone must be a string",
       });
       return;
     }
@@ -155,45 +163,87 @@ export const requirementsCounts = async (req: Request, res: Response) => {
 
     date = date?.filter((d) => !!d);
 
-    const countPromises = date.map(async (dateStr) => {
-      try {
-        const parsedDate = new Date(dateStr as string);
-        
-        if (isNaN(parsedDate.getTime())) {
-          throw new Error(`Invalid date: ${dateStr}`);
-        }
-
-        const startOfDay = new Date(parsedDate);
-        startOfDay.setHours(0, 0, 0, 0);
-        
-        const endOfDay = new Date(parsedDate);
-        endOfDay.setHours(23, 59, 59, 999);
-
-        const count = await RequirementModel.countDocuments({
-          createdAt: {
-            $gte: startOfDay,
-            $lte: endOfDay,
-          },
+    date.forEach((d) => {
+      const dateString = d as string;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+        res.status(400).json({
+          status: "failed",
+          message: `Date must be in YYYY-MM-DD format: ${dateString}`,
         });
+        return;
+      }
 
-        return {
-          date: dateStr as string,
-          count: count,
-        };
-      } catch (error) {
-        console.error(`Error processing date ${dateStr}:`, error);
-        return {
-          date: String(dateStr),
-          count: 0,
-        };
+      const parsedDate = new Date(dateString);
+      if (isNaN(parsedDate.getTime())) {
+        res
+          .status(400)
+          .json({ status: "failed", message: `Invalid date: ${dateString}` });
+        return;
       }
     });
 
-    const counts = await Promise.all(countPromises);
+    const dateObjects = date.map((d) => new Date(d as string));
+    const minInputDate = new Date(
+      Math.min(...dateObjects.map((d) => d.getTime())),
+    );
+    const maxInputDate = new Date(
+      Math.max(...dateObjects.map((d) => d.getTime())),
+    );
+
+    const minDate = new Date(minInputDate.getTime() - 24 * 60 * 60 * 1000);
+    const maxDate = new Date(maxInputDate.getTime() + 24 * 60 * 60 * 1000);
+
+    const aggregationResult = await RequirementModel.aggregate([
+      {
+        $match: {
+          createdAt: {
+            $gte: minDate,
+            $lte: maxDate,
+          },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            $dateToString: {
+              format: "%Y-%m-%d",
+              date: "$createdAt",
+              timezone: timezone,
+            },
+          },
+          count: { $sum: 1 },
+        },
+      },
+      {
+        $project: {
+          date: "$_id",
+          count: 1,
+          _id: 0,
+        },
+      },
+      {
+        $sort: { date: 1 },
+      },
+    ]);
+
+
+    const countMap = new Map();
+    aggregationResult.forEach((item) => {
+      countMap.set(item.date, item.count);
+    });
+
+    const counts = date.map((dateStr) => {
+      const dateString = dateStr as string;
+      return {
+        date: dateString,
+        count: countMap.get(dateString) || 0,
+      };
+    });
 
     res.status(200).json({
       status: "success",
       data: counts,
+      timezone: timezone,
     });
   } catch (error) {
     console.log(error);
