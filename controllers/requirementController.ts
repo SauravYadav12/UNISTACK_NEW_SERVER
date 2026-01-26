@@ -5,9 +5,14 @@ import {
   handleSearchString,
   searchableFields,
 } from "../utils/searchStringOperation";
-import { handleDateQuery, sequenceId } from "../utils/utils";
+import {
+  handleDateQuery,
+  handlePaginationQuery,
+  sequenceId,
+} from "../utils/utils";
 import { RequirementModel } from "../models/requirementModel";
 import RequirementLogModel from "../models/requirement.log.model";
+import { ArchiveRequirement } from "../db/archiveInstance";
 
 export const getAllRrequirements = async (req: Request, res: Response) => {
   try {
@@ -135,7 +140,14 @@ export const createRequirementLog = async (req: Request, res: Response) => {
 
 export const requirementsCounts = async (req: Request, res: Response) => {
   try {
-    let { date, timezone = "Asia/Kolkata" } = req.query;
+    let {
+      date,
+      timezone = "Asia/Kolkata",
+      archive = false,
+      ...filters
+    } = req.query;
+
+    const { query } = handlePaginationQuery(filters);
 
     if (!date) {
       res.status(400).json({
@@ -193,9 +205,14 @@ export const requirementsCounts = async (req: Request, res: Response) => {
     const minDate = new Date(minInputDate.getTime() - 24 * 60 * 60 * 1000);
     const maxDate = new Date(maxInputDate.getTime() + 24 * 60 * 60 * 1000);
 
-    const aggregationResult = await RequirementModel.aggregate([
+    const aggregationResult = await (
+      archive.toString().toLowerCase() === "true"
+        ? ArchiveRequirement
+        : RequirementModel
+    ).aggregate([
       {
         $match: {
+          ...query,
           createdAt: {
             $gte: minDate,
             $lte: maxDate,
@@ -226,8 +243,8 @@ export const requirementsCounts = async (req: Request, res: Response) => {
       },
     ]);
 
-
     const countMap = new Map();
+
     aggregationResult.forEach((item) => {
       countMap.set(item.date, item.count);
     });
