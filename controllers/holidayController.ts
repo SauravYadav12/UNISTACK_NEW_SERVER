@@ -60,7 +60,7 @@ export const updateHoliday = async (req: Request, res: Response) => {
     const { fromDate, toDate } = req.body;
 
     if (fromDate || toDate) {
-      const isOverlapping = await checkHolidayOverlap(fromDate, toDate, id);
+      const isOverlapping = await checkHolidayOverlap(fromDate, toDate, id.toString());
 
       if (isOverlapping) {
         res.status(400).json({

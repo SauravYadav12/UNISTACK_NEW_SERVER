@@ -50,7 +50,9 @@ mongoose
     useFindAndModify: false,
     useUnifiedTopology: true,
   })
-  .then(() => console.log("DB Connections successfull"));
+  .then(() => console.log("Dev DB Connections successfull")).catch((err) => {
+    console.error("DB connection error:", err);
+  });
 
 //User Routes
 app.use("/users", usersRoute);

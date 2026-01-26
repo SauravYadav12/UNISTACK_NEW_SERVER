@@ -6,6 +6,7 @@ import {
   deleteRequirement,
   createRequirementLog,
   getRequirementLog,
+  requirementsCounts,
 } from "../controllers/requirementController";
 const requirementRoute = express.Router();
 import passport from "passport";
@@ -34,6 +35,11 @@ requirementRoute.delete(
   deleteRequirement
 );
 
+requirementRoute.get(
+  '/count-by-date',
+  passport.authenticate('jwt', { session: false }),
+  requirementsCounts
+)
 
 // -------------------logs-----------------
 

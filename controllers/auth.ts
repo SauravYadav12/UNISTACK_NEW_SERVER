@@ -282,7 +282,7 @@ export const sendOtpToResetPassword = async (req: Request, res: Response) => {
   const { email } = req.params;
 
   try {
-    const { error, otp } = await generateAndStoreOTP(email);
+    const { error, otp } = await generateAndStoreOTP(email.toString());
     if (error || !otp) {
       res.status(404).json({
         message: "User with this email not found.",
@@ -308,7 +308,7 @@ export const sendOtpToLogin = async (req: Request, res: Response) => {
   const { email } = req.params;
 
   try {
-    const { error, otp } = await generateAndStoreOTP(email);
+    const { error, otp } = await generateAndStoreOTP(email.toString());
     if (error || !otp) {
       res.status(404).json({
         message: "User with this email not found.",

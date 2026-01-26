@@ -14,7 +14,7 @@ export const getAllRrequirements = async (req: Request, res: Response) => {
     const iQuery = handleSearchString(req.query, searchableFields.requirement);
     const { options, instance } = await paginationInstance(
       iQuery,
-      RequirementModel
+      RequirementModel,
     );
     const { startIndex, limit, query } = options;
     const requirements = await RequirementModel.find(query)
@@ -61,7 +61,7 @@ export const updateRequirement = async (req: Request, res: Response) => {
     const updatedReq = await RequirementModel.findByIdAndUpdate(
       req.params.id,
       { ...nonArrayUpdates, ...updateOps },
-      { new: true }
+      { new: true },
     );
 
     res.status(200).json({
@@ -129,6 +129,77 @@ export const createRequirementLog = async (req: Request, res: Response) => {
     console.log(error);
     res.status(400).json({
       status: "failed",
+    });
+  }
+};
+
+export const requirementsCounts = async (req: Request, res: Response) => {
+  try {
+    let { date } = req.query;
+
+    if (!date) {
+      res.status(400).json({
+        status: "failed",
+        message: "Date query is required",
+      });
+      return;
+    }
+
+    if (!Array.isArray(date)) {
+      if (typeof date === "string") {
+        date = [date];
+      } else if (typeof date === "object") {
+        date = Object.values(date).filter((d) => typeof d === "string");
+      }
+    }
+
+    date = date?.filter((d) => !!d);
+
+    const countPromises = date.map(async (dateStr) => {
+      try {
+        const parsedDate = new Date(dateStr as string);
+        
+        if (isNaN(parsedDate.getTime())) {
+          throw new Error(`Invalid date: ${dateStr}`);
+        }
+
+        const startOfDay = new Date(parsedDate);
+        startOfDay.setHours(0, 0, 0, 0);
+        
+        const endOfDay = new Date(parsedDate);
+        endOfDay.setHours(23, 59, 59, 999);
+
+        const count = await RequirementModel.countDocuments({
+          createdAt: {
+            $gte: startOfDay,
+            $lte: endOfDay,
+          },
+        });
+
+        return {
+          date: dateStr as string,
+          count: count,
+        };
+      } catch (error) {
+        console.error(`Error processing date ${dateStr}:`, error);
+        return {
+          date: String(dateStr),
+          count: 0,
+        };
+      }
+    });
+
+    const counts = await Promise.all(countPromises);
+
+    res.status(200).json({
+      status: "success",
+      data: counts,
+    });
+  } catch (error) {
+    console.log(error);
+    res.status(400).json({
+      status: "failed",
+      error: error,
     });
   }
 };
