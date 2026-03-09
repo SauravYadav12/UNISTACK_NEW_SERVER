@@ -16,6 +16,7 @@ import {
   sendMail,
 } from "../utils/mailTransporter";
 import { Request, Response } from "express";
+import ENV_VARS from "../config/env.config";
 
 export function extractIUser(user: UserDoc) {
   return {
@@ -257,7 +258,7 @@ export const verifyOtp = async (req: Request, res: Response) => {
     const iUser = extractIUser(user);
     const token = jwt.sign(
       { user: iUser },
-      process.env.JWT_SECRET_KEY || "unistack",
+      ENV_VARS.JWT_SECRET_KEY || "unistack",
       {
         expiresIn: "10h",
       },

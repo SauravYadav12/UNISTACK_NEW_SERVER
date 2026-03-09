@@ -2,17 +2,17 @@ import {
   S3Client,
   PutObjectCommand,
   PutObjectCommandInput,
+  PutBucketCorsCommand,
 } from "@aws-sdk/client-s3";
 import { Request, Response } from "express";
-import dotenv from "dotenv";
 import { Storage } from "@google-cloud/storage";
+import ENV_VARS from "../config/env.config";
 
-dotenv.config({ path: "./config.env" });
-const endpoint = process.env.S3CLIENT_END_POINT;
-const accessKeyId = process.env.STORAGE_ACCESS_KEY_ID as string;
-const secretAccessKey = process.env.STORAGE_SECRET_ACCESS_KEY as string;
-const bucket = process.env.STORAGE_BUCKET;
-const gcpBucket = process.env.GCP_STORAGE_BUCKET;
+const endpoint = ENV_VARS.S3CLIENT_END_POINT;
+const accessKeyId = ENV_VARS.STORAGE_ACCESS_KEY_ID as string;
+const secretAccessKey = ENV_VARS.STORAGE_SECRET_ACCESS_KEY as string;
+const bucket = ENV_VARS.STORAGE_BUCKET;
+const gcpBucket = ENV_VARS.GCP_STORAGE_BUCKET;
 
 if (!accessKeyId || !secretAccessKey || !bucket || !endpoint || !gcpBucket) {
   console.log("invalid storage configuration : ", "Invalid Keys");
@@ -38,6 +38,23 @@ export const uploadFile = async (req: Request, res: Response) => {
   }
 
   try {
+    const corsParams = {
+      Bucket: bucket,
+      CORSConfiguration: {
+        CORSRules: [
+          {
+            AllowedOrigins: ENV_VARS.ALLOWED_ORIGINS || [],
+            AllowedMethods: ["GET", "HEAD"],
+            AllowedHeaders: ["*"],
+            ExposeHeaders: ["Content-Type", "Content-Length"],
+            MaxAgeSeconds: 3600,
+          },
+        ],
+      },
+    };
+
+    await s3Client.send(new PutBucketCorsCommand(corsParams));
+
     const key = `uploads/${Date.now()}-${req.file.originalname}`;
     const params: PutObjectCommandInput = {
       Bucket: bucket,
@@ -71,6 +88,14 @@ export const uploadFileToGcpStorage = async (req: Request, res: Response) => {
 
   try {
     const key = `uploads/${Date.now()}-${req.file.originalname}`;
+    await gcpStorage.bucket(gcpBucket || "").setCorsConfiguration([
+      {
+        origin: ENV_VARS.ALLOWED_ORIGINS || [],
+        method: ["GET", "HEAD"],
+        responseHeader: ["Content-Type", "Content-Length"],
+        maxAgeSeconds: 3600,
+      },
+    ]);
     await gcpStorage
       .bucket(gcpBucket || "")
       .file(key)

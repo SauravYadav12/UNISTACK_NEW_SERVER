@@ -146,14 +146,15 @@ export const createRequirementLog = async (req: Request, res: Response) => {
 export const requirementsCounts = async (req: Request, res: Response) => {
   try {
     const {
+      date,
       timezone = "Asia/Kolkata",
       archive = false,
       ...filters
     } = req.query;
-    let { date } = req.query;
+    let iDates = date;
     const { query } = handlePaginationQuery(filters);
 
-    if (!date) {
+    if (!iDates) {
       res.status(400).json({
         status: "failed",
         message: "Date query is required",
@@ -169,17 +170,17 @@ export const requirementsCounts = async (req: Request, res: Response) => {
       return;
     }
 
-    if (!Array.isArray(date)) {
-      if (typeof date === "string") {
-        date = [date];
-      } else if (typeof date === "object") {
-        date = Object.values(date).filter((d) => typeof d === "string");
+    if (!Array.isArray(iDates)) {
+      if (typeof iDates === "string") {
+        iDates = [iDates];
+      } else if (typeof iDates === "object") {
+        iDates = Object.values(iDates).filter((d) => typeof d === "string");
       }
     }
 
-    date = date?.filter((d) => !!d);
+    iDates = iDates?.filter((d) => !!d);
 
-    date.forEach((d) => {
+    iDates.forEach((d) => {
       const dateString = d as string;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
         res.status(400).json({
@@ -198,7 +199,7 @@ export const requirementsCounts = async (req: Request, res: Response) => {
       }
     });
 
-    const dateObjects = date.map((d) => new Date(d as string));
+    const dateObjects = iDates.map((d) => new Date(d as string));
     const minInputDate = new Date(
       Math.min(...dateObjects.map((d) => d.getTime())),
     );
@@ -253,7 +254,7 @@ export const requirementsCounts = async (req: Request, res: Response) => {
       countMap.set(item.date, item.count);
     });
 
-    const counts = date.map((dateStr) => {
+    const counts = iDates.map((dateStr) => {
       const dateString = dateStr as string;
       return {
         date: dateString,

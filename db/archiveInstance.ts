@@ -1,9 +1,10 @@
 import mongoose from "mongoose";
+import ENV_VARS from "../config/env.config";
 
 const ARCHIVE_DB_URL =
-  process.env.ARCHIVE_DATABASE?.replace(
+  ENV_VARS.ARCHIVE_DATABASE?.replace(
     "<PASSWORD>",
-    process.env.ARCHIVE_DATABASE_PASSWORD || ""
+    ENV_VARS.ARCHIVE_DATABASE_PASSWORD || ""
   ) || "";
 
 const ARCHIVE_DB_INSTANCE = mongoose.createConnection(ARCHIVE_DB_URL, {

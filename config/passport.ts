@@ -4,15 +4,14 @@ import {
   StrategyOptionsWithoutRequest,
 } from "passport-jwt";
 import { getUserById } from "../models/userModel";
-import dotenv from "dotenv";
 import { PassportStatic } from "passport";
+import ENV_VARS from "./env.config";
 
-dotenv.config({ path: "./config.env" });
 
 export default function (passport: PassportStatic) {
   const options: StrategyOptionsWithoutRequest = {
     jwtFromRequest: ExtractJwt.fromAuthHeaderWithScheme("JWT"),
-    secretOrKey: process.env.JWT_SECRET_KEY || "your_jwt_secret_key",
+    secretOrKey: ENV_VARS.JWT_SECRET_KEY || "your_jwt_secret_key",
   };
 
 

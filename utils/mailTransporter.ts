@@ -1,11 +1,10 @@
 import nodemailer from "nodemailer";
-import dotenv from "dotenv";
 import { MailOptions } from "nodemailer/lib/json-transport";
-dotenv.config({ path: "./config.env" });
+import ENV_VARS from "../config/env.config";
 
-const pass = process.env.SMTP_PASS;
-const user = process.env.SMTP_USER;
-const host = process.env.SMTP_HOST;
+const pass = ENV_VARS.SMTP_PASS;
+const user = ENV_VARS.SMTP_USER;
+const host = ENV_VARS.SMTP_HOST;
 
 export const otpExpiryInMs = 1000 * 60 * 10; // 10 minutes
 
@@ -16,7 +15,7 @@ if (!pass || !user || !host) {
 
 const mailTransporter = nodemailer.createTransport({
   host,
-  port: Number(process.env.SMTP_PORT) || 465,
+  port: Number(ENV_VARS.SMTP_PORT) || 465,
   secure: true,
   auth: {
     user,

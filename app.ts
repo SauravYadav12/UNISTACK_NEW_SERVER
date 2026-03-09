@@ -22,6 +22,7 @@ import { leaveRoute } from "./routes/leaveRoute";
 import morgan from "morgan";
 import { holidayRoute } from "./routes/holidayRoutes";
 import initPassport from "./config/passport";
+import ENV_VARS from "./config/env.config";
 const app = express();
 app.use(morgan("dev"));
 //Body Parser
@@ -38,9 +39,9 @@ app.use(express.static(path.join(__dirname, "public")));
 
 //Database Setup
 const DB =
-  process.env.DATABASE?.replace(
+  ENV_VARS.DATABASE?.replace(
     "<PASSWORD>",
-    process.env.DATABASE_PASSWORD || ""
+    ENV_VARS.DATABASE_PASSWORD || ""
   ) || "";
 
 mongoose
@@ -72,7 +73,7 @@ app.use("/leaves", leaveRoute);
 app.use("/holidays", holidayRoute);
 
 //PORT
-const port = process.env.PORT || 5000;
+const port = ENV_VARS.PORT || 5000;
 
 //Index Route
 app.get("/", (req, res) => {
