@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { InterviewModel } from "../models/interviewModel";
 import { paginationInstance } from "../utils/pagination";
-import { sequenceId } from "../utils/utils";
+import { getErrorMessage, sequenceId } from "../utils/utils";
 import {
   handleSearchString,
   searchableFields,
@@ -28,8 +28,10 @@ export const getAllInterviews = async (req: Request, res: Response) => {
       data,
     });
   } catch (error) {
+    console.error("Error fetching interviews:", error);
     res.status(400).json({
       status: "failed",
+      error: getErrorMessage(error),
     });
   }
 };
@@ -43,16 +45,16 @@ export const createInterview = async (req: Request, res: Response) => {
       data: interview,
     });
   } catch (error) {
-    console.log(error);
+    console.error("Error creating interview:", error);
     res.status(400).json({
       status: "failed",
+      error: getErrorMessage(error),  
     });
   }
 };
 
 export const updateInterview = async (req: Request, res: Response) => {
   try {
-    const id = req.params.id;
     const data = await InterviewModel.findByIdAndUpdate(
       req.params.id,
       req.body,
@@ -74,7 +76,7 @@ export const updateInterview = async (req: Request, res: Response) => {
   } catch (error) {
     res.status(400).json({
       status: "failed",
-      error,
+      error: getErrorMessage(error),
     });
   }
 };
@@ -95,10 +97,11 @@ export const deleteInterview = async (req: Request, res: Response) => {
       message: "Interview deleted successfully",
       deleteInterview,
     });
-  } catch (error: any) {
+  } catch (error) {
+    console.error("Error deleting interview:", error);
     res.status(500).json({
       status: "failed",
-      error: error.message,
+      error: getErrorMessage(error),
     });
   }
 };

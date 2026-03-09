@@ -23,7 +23,7 @@ export const getUserProfiles = async (req: Request, res: Response) => {
 
 export const createUserProfile = async (req: Request, res: Response) => {
   try {
-    let sequenceNumber = await UserProfileModel.countDocuments()+1;
+    const sequenceNumber = await UserProfileModel.countDocuments()+1;
     const date = new Date();
     const m = date.getMonth() + 1;
     const month = m < 10 ? `0${m}` : m;

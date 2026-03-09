@@ -1,8 +1,19 @@
-import mongoose from "mongoose";
+import mongoose, { Document } from "mongoose";
 import { UserModel } from "./userModel";
 import { ConsultantModel } from "./consultantModel";
 import { TeamsModel } from "./teamsModel";
-const interviewSchema = new mongoose.Schema(
+import { IInterview } from "../interface/modelInterfaces";
+
+export interface InterviewDoc extends Omit<IInterview, '_id' | 'consultantRef' | 'marketingPersonRef' | 'candidateRef' | 'createdAt' | 'updatedAt'>, Document {
+  _id: mongoose.Types.ObjectId;
+  consultantRef?: mongoose.Types.ObjectId;
+  marketingPersonRef?: mongoose.Types.ObjectId;
+  candidateRef?: mongoose.Types.ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const interviewSchema = new mongoose.Schema<InterviewDoc>(
   {
     intId: {
       type: String,
@@ -145,4 +156,4 @@ const interviewSchema = new mongoose.Schema(
   }
 );
 
-export const InterviewModel = mongoose.model("Interview", interviewSchema);
+export const InterviewModel = mongoose.model<InterviewDoc>("Interview", interviewSchema);

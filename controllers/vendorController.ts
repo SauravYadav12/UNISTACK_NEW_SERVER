@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { VendorModel } from "../models/vendorModel";
 import { paginationInstance } from "../utils/pagination";
-import { sequenceId } from "../utils/utils";
+import { getErrorMessage, sequenceId } from "../utils/utils";
 import {
   handleSearchString,
   searchableFields,
@@ -11,7 +11,7 @@ export const getAllInterviews = async (req: Request, res: Response) => {
   try {
     const iQuery = handleSearchString(
       req.query,
-      searchableFields.vendorInterview
+      searchableFields.vendorInterview,
     );
     const { options, instance } = await paginationInstance(iQuery, VendorModel);
     const { startIndex, query, limit } = options;
@@ -26,8 +26,10 @@ export const getAllInterviews = async (req: Request, res: Response) => {
       data,
     });
   } catch (error) {
+    console.error("Error fetching vendor interviews:", error);
     res.status(400).json({
       status: "failed",
+      error: getErrorMessage(error),
     });
   }
 };
@@ -44,13 +46,13 @@ export const createInterview = async (req: Request, res: Response) => {
     console.log(error);
     res.status(400).json({
       status: "failed",
+      error: getErrorMessage(error),
     });
   }
 };
 
 export const updateInterview = async (req: Request, res: Response) => {
   try {
-    const id = req.params.id;
     const data = await VendorModel.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
     });
@@ -66,9 +68,10 @@ export const updateInterview = async (req: Request, res: Response) => {
       data: data,
     });
   } catch (error) {
+    console.log(error);
     res.status(400).json({
       status: "failed",
-      error,
+      error: getErrorMessage(error),
     });
   }
 };
@@ -89,10 +92,11 @@ export const deleteInterview = async (req: Request, res: Response) => {
       message: "Vendor Interview deleted successfully",
       deleteInterview,
     });
-  } catch (error: any) {
+  } catch (error) {
+    console.error("Error deleting vendor interview:", error);
     res.status(500).json({
       status: "failed",
-      error: error.message,
+      error: getErrorMessage(error),
     });
   }
 };

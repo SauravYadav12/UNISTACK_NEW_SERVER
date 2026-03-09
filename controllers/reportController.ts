@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { RequirementModel } from "../models/requirementModel";
+import { RequirementDoc, RequirementModel } from "../models/requirementModel";
 import {
   InterviewReport,
   InterviewStatus,
@@ -7,9 +7,10 @@ import {
   PositionReport,
   RequirementStatus,
 } from "../interface/interfaces";
-import { InterviewModel } from "../models/interviewModel";
-import { UserModel } from "../models/userModel";
+import { InterviewDoc, InterviewModel } from "../models/interviewModel";
+import { UserDoc, UserModel } from "../models/userModel";
 import { myDate } from "../utils/dateUtil";
+import { UserRole } from "../enums/UserEnum";
 
 const reqStatusList: RequirementStatus[] = [
   "New Working",
@@ -28,7 +29,7 @@ export const interviewStatusList: InterviewStatus[] = [
 ];
 const pushAccountsWithZeroRecords = (
   recordSorted: (PositionReport | MarketingReport | InterviewReport)[],
-  accounts: any[]
+  accounts: UserDoc[]
 ) => {
   const accountsWithZeroRecords = accounts.filter(
     (s) =>
@@ -39,20 +40,20 @@ const pushAccountsWithZeroRecords = (
   for (const s of accountsWithZeroRecords) {
     recordSorted.push({
       name: `${s.firstName} ${s.lastName}`,
-      id: s._id,
+      id: s._id?.toString(),
     });
   }
   return recordSorted;
 };
-const sortSupportRecords = (positions: any[]) => {
-  let positionSorted: PositionReport[] = [];
-  for (let req of positions) {
-     if(!!req.duplicateWith) continue; // skip duplicate positions
+const sortSupportRecords = (positions: RequirementDoc[]) => {
+  const positionSorted: PositionReport[] = [];
+  for (const req of positions) {
+     if(req.duplicateWith) continue; // skip duplicate positions
     const i = positionSorted.findIndex((e) => e.name === req.reqEnteredBy);
-    let info: PositionReport = i > -1 ? positionSorted[i] : {};
+    const info: PositionReport = i > -1 ? positionSorted[i] : {};
 
     info.name = req.reqEnteredBy || "NA";
-    info.id = req.reqEnteredByRef;
+    info.id = req.reqEnteredByRef?.toString();
     info.totalPositions = (info.totalPositions || 0) + 1;
 
     for (const status of reqStatusList) {
@@ -72,16 +73,16 @@ const sortSupportRecords = (positions: any[]) => {
   return positionSorted;
 };
 
-const sortMarketingRecords = (allPositions: any[]) => {
-  let sortedRecords: MarketingReport[] = [];
+const sortMarketingRecords = (allPositions: RequirementDoc[]) => {
+  const sortedRecords: MarketingReport[] = [];
 
-  for (let req of allPositions) {
+  for (const req of allPositions) {
     const i = sortedRecords.findIndex((e) => e.name === req.assignedTo);
 
-    let info: MarketingReport = i > -1 ? sortedRecords[i] : {};
+    const info: MarketingReport = i > -1 ? sortedRecords[i] : {};
 
     info.name = req.assignedTo;
-    info.id = req.assignedToRef;
+    info.id = req.assignedToRef?.toString();
     info.totalAssigned = (info.totalAssigned || 0) + 1;
 
     for (const status of reqStatusList) {
@@ -101,16 +102,16 @@ const sortMarketingRecords = (allPositions: any[]) => {
   return sortedRecords;
 };
 
-const sortInterviewsRecords = (allInterviews: any[]) => {
-  let sortedInterviews: InterviewReport[] = [];
-  for (let req of allInterviews) {
+const sortInterviewsRecords = (allInterviews: InterviewDoc[]) => {
+  const sortedInterviews: InterviewReport[] = [];
+  for (const req of allInterviews) {
     const i = sortedInterviews.findIndex(
       (e) => e.name === (req.marketingPerson || "NA")
     );
-    let info: InterviewReport = i > -1 ? sortedInterviews[i] : {};
+    const info: InterviewReport = i > -1 ? sortedInterviews[i] : {};
 
     info.name = req.marketingPerson || "NA";
-    info.id = req.marketingPersonRef;
+    info.id = req.marketingPersonRef?.toString();
     info.totalInterviews = (info.totalInterviews || 0) + 1;
 
     for (const status of interviewStatusList) {
@@ -132,10 +133,10 @@ const sortInterviewsRecords = (allInterviews: any[]) => {
 
 export const getSupportReport = async (req: Request, res: Response) => {
   try {
-    let { fromDate, toDate } = req.query;
+    const { fromDate, toDate } = req.query;
     const { from, to } = myDate(fromDate, toDate);
-    const supports = await UserModel.find({ role: "support", active: true });
-    const ids = supports.map((s: any) => s._id);
+    const supports = await UserModel.find({ role: UserRole.Support, active: true });
+    const ids = supports.map((s) => s._id);
     const positions = await RequirementModel.find({
       createdAt: {
         $gte: from,
@@ -162,10 +163,10 @@ export const getSupportReport = async (req: Request, res: Response) => {
 
 export const getMarketingReport = async (req: Request, res: Response) => {
   try {
-    let { fromDate, toDate } = req.query;
+    const { fromDate, toDate } = req.query;
     const { from, to } = myDate(fromDate, toDate);
-    const marketing = await UserModel.find({ role: "marketing", active: true });
-    const ids = marketing.map((s: any) => s._id);
+    const marketing = await UserModel.find({ role: UserRole.Marketing, active: true });
+    const ids = marketing.map((s) => s._id);
     const positions = await RequirementModel.find({
       createdAt: {
         $gte: from,
@@ -189,10 +190,10 @@ export const getMarketingReport = async (req: Request, res: Response) => {
 
 export const getInterviewReport = async (req: Request, res: Response) => {
   try {
-    let { fromDate, toDate } = req.query;
+    const { fromDate, toDate } = req.query;
     const { from, to } = myDate(fromDate, toDate);
-    const marketing = await UserModel.find({ role: "marketing", active: true });
-    const ids = marketing.map((s: any) => s._id);
+    const marketing = await UserModel.find({ role: UserRole.Marketing, active: true });
+    const ids = marketing.map((s) => s._id);
     const interviews = await InterviewModel.find({
       createdAt: {
         $gte: from,

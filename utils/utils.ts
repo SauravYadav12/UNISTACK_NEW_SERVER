@@ -1,14 +1,17 @@
-import { Model } from "mongoose";
+import { Document, Model } from "mongoose";
 import { myDate } from "./dateUtil";
 import moment from "moment";
 
 export const attendanceDateFormate = "YYYY/MM/DD";
 export const stringDateFormate = attendanceDateFormate;
 
-export const isFormateValid = (d: any) =>
+export const isFormateValid = (d: string) =>
   moment(d, attendanceDateFormate, true).isValid();
 
-export const handleDateQuery = (query: any, fieldName = "createdAt") => {
+export const handleDateQuery = (
+  query: Record<string, unknown>,
+  fieldName = "createdAt",
+) => {
   const { fromDate, toDate } = query;
 
   if (fromDate || toDate) {
@@ -23,7 +26,7 @@ export const handleDateQuery = (query: any, fieldName = "createdAt") => {
   return { ...query };
 };
 
-export const handlePaginationQuery = (query: any) => {
+export const handlePaginationQuery = (query: Record<string, unknown>) => {
   query = handleDateQuery(query);
   const page = parseInt(query.page as string) || 1;
   const limit = parseInt(query.limit as string) || 100;
@@ -34,25 +37,27 @@ export const handlePaginationQuery = (query: any) => {
   return { query, page, limit, startIndex, endIndex };
 };
 
-export const sequenceId = async (
-  model: Model<any, {}, {}>,
+export const sequenceId = async <T extends Document>(
+  model: Model<T>,
   field: string,
-  label: string = ""
+  label: string = "",
 ) => {
-  const lastDoc = await model.findOne({}, {}, { sort: { createdAt: -1 } });
+  const lastDoc =( await model.findOne({}, {}, { sort: { createdAt: -1 } })) as Record<string, unknown> | null;
   let count = 1;
-  if (lastDoc && lastDoc[field]) {
+  if (lastDoc && lastDoc[field] && typeof lastDoc[field] === "string") {
     count = parseInt(lastDoc[field].split("-")[1]) + 1 || 1;
   }
   const i = count < 10 ? "0" + count : count;
   return `${label}-${i}`;
 };
 
-export function handleAttendanceDateQueryParams(query: any) {
+export function handleAttendanceDateQueryParams(
+  query: Record<string, unknown>,
+) {
   const { fromDate, toDate } = query;
   if (
-    (fromDate && !isFormateValid(fromDate)) ||
-    (toDate && !isFormateValid(toDate))
+    (fromDate && !isFormateValid(fromDate as string)) ||
+    (toDate && !isFormateValid(toDate as string))
   ) {
     return { error: "Date formate should be " + attendanceDateFormate };
   }
@@ -68,4 +73,11 @@ export function handleAttendanceDateQueryParams(query: any) {
   }
 
   return { query };
+}
+
+export function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }

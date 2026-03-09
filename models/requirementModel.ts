@@ -1,8 +1,18 @@
-import mongoose from "mongoose";
+import mongoose, { Document } from "mongoose";
 import { UserModel } from "./userModel";
 import { ConsultantModel } from "./consultantModel";
+import { IRequirement } from "../interface/modelInterfaces";
 
-const requirementSchema = new mongoose.Schema(
+export interface RequirementDoc extends Omit<IRequirement, '_id' | 'appliedForRef' | 'assignedToRef' | 'reqEnteredByRef' | 'createdAt' | 'updatedAt'>, Document {
+  _id: mongoose.Types.ObjectId;
+  appliedForRef?: mongoose.Types.ObjectId;
+  assignedToRef?: mongoose.Types.ObjectId;
+  reqEnteredByRef: mongoose.Types.ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const requirementSchema = new mongoose.Schema<RequirementDoc>(
   {
     reqID: {
       type: String,
@@ -160,7 +170,7 @@ const requirementSchema = new mongoose.Schema(
   }
 );
 
-export const RequirementModel = mongoose.model(
+export const RequirementModel = mongoose.model<RequirementDoc>(
   "Requirement",
   requirementSchema
 );

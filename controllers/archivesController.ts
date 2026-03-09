@@ -23,13 +23,14 @@ export const getAllArchiveRequirements = async (
       .skip(startIndex)
       .exec();
 
-    const data: PaginationResult<any> = { ...instance, results: requirements };
+    const data: PaginationResult<unknown> = { ...instance, results: requirements };
 
     res.status(200).json({
       status: "success",
       data,
     });
   } catch (error) {
+    console.error("Error fetching archived requirements:", error);
     res.status(400).json({
       status: "failed",
     });
@@ -50,13 +51,14 @@ export const getAllArchiveInterviews = async (req: Request, res: Response) => {
       .skip(startIndex)
       .exec();
 
-    const data: PaginationResult<any> = { ...instance, results: interview };
+    const data: PaginationResult<unknown> = { ...instance, results: interview };
 
     res.status(200).json({
       status: "success",
       data,
     });
   } catch (error) {
+    console.error("Error fetching archived interviews:", error);
     res.status(400).json({
       status: "failed",
     });

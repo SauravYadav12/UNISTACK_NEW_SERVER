@@ -1,5 +1,12 @@
-import { Schema, model } from "mongoose";
+import { Schema, model, Document } from "mongoose";
+import { IAccessControl } from "../interface/modelInterfaces";
 
-const accessControlSchema = new Schema({}, { timestamps: true, strict: false });
+export interface AccessControlDoc extends Omit<IAccessControl, '_id' | 'createdAt' | 'updatedAt'>, Document {
+  _id: Schema.Types.ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
-export const AccessControlModel = model("AccessControl", accessControlSchema);
+const accessControlSchema = new Schema<AccessControlDoc>({}, { timestamps: true, strict: false });
+
+export const AccessControlModel = model<AccessControlDoc>("AccessControl", accessControlSchema);

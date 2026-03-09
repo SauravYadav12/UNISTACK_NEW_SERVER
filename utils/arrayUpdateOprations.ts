@@ -1,7 +1,9 @@
-export const updateArrayFields = (req: any, arrayFields: any) => {
-  const updateOps: any = {};
+import { Request } from "express";
 
-  arrayFields.forEach((field: any) => {
+export const updateArrayFields = (req: Request, arrayFields: string[]) => {
+  const updateOps: { $push?: Record<string, unknown> } = {};
+
+  arrayFields.forEach((field) => {
     if (req.body[field]) {
       updateOps.$push = updateOps.$push || {};
       updateOps.$push[field] = req.body[field];

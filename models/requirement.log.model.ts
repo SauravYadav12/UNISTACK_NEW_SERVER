@@ -1,19 +1,17 @@
 import mongoose, { Schema, Document, Types } from "mongoose";
 import { RequirementModel } from "./requirementModel";
 import { UserModel } from "./userModel";
+import { IRequirementLog } from "../interface/modelInterfaces";
 
-interface RequirementLogDocument extends Document {
+export interface RequirementLogDoc extends Omit<IRequirementLog, '_id' | 'requirementRef' | 'userRef' | 'createdAt' | 'updatedAt'>, Document {
+  _id: Types.ObjectId;
   requirementRef: Types.ObjectId;
-  operation: "create" | "update" | "delete";
-  userName: string;
   userRef: Types.ObjectId;
-  oldData?: Partial<any>;
-  newData: Partial<any>;
-  createdAt: string;
-  updatedAt: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
-const RequirementLogSchema: Schema<RequirementLogDocument> = new Schema(
+const RequirementLogSchema: Schema<RequirementLogDoc> = new Schema(
   {
     requirementRef: {
       type: Schema.Types.ObjectId,
@@ -41,7 +39,7 @@ const RequirementLogSchema: Schema<RequirementLogDocument> = new Schema(
   }
 );
 
-const RequirementLogModel = mongoose.model<RequirementLogDocument>(
+const RequirementLogModel = mongoose.model<RequirementLogDoc>(
   "RequirementLog",
   RequirementLogSchema
 );

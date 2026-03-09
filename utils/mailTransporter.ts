@@ -25,7 +25,7 @@ const mailTransporter = nodemailer.createTransport({
 });
 
 mailTransporter.on("error", (err) => console.log(err));
-mailTransporter.verify(function (error, success) {
+mailTransporter.verify(function (error) {
   if (error) {
     console.log(error);
   } else {

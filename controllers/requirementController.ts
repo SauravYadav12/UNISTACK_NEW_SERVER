@@ -6,6 +6,7 @@ import {
   searchableFields,
 } from "../utils/searchStringOperation";
 import {
+  getErrorMessage,
   handleDateQuery,
   handlePaginationQuery,
   sequenceId,
@@ -33,8 +34,10 @@ export const getAllRrequirements = async (req: Request, res: Response) => {
       data: data,
     });
   } catch (error) {
+    console.error("Error fetching requirements:", error);
     res.status(400).json({
       status: "failed",
+      error: getErrorMessage(error),
     });
   }
 };
@@ -99,10 +102,11 @@ export const deleteRequirement = async (req: Request, res: Response) => {
       message: "RequirementModel deleted successfully",
       deletedRequirement,
     });
-  } catch (error: any) {
+  } catch (error) {
+    console.error("Error deleting requirement:", error);
     res.status(500).json({
       status: "failed",
-      error: error.message,
+      error: getErrorMessage(error),
     });
   }
 };
@@ -134,19 +138,19 @@ export const createRequirementLog = async (req: Request, res: Response) => {
     console.log(error);
     res.status(400).json({
       status: "failed",
+      error: getErrorMessage(error),
     });
   }
 };
 
 export const requirementsCounts = async (req: Request, res: Response) => {
   try {
-    let {
-      date,
+    const {
       timezone = "Asia/Kolkata",
       archive = false,
       ...filters
     } = req.query;
-
+    let { date } = req.query;
     const { query } = handlePaginationQuery(filters);
 
     if (!date) {

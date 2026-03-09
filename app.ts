@@ -3,8 +3,9 @@ import path from "path";
 import cors from "cors";
 import passport from "passport";
 import mongoose from "mongoose";
-import { usersRoute } from "./routes/usersRoute";
 import dotenv from "dotenv";
+dotenv.config({ path: "./config.env" });
+import { usersRoute } from "./routes/usersRoute";
 import { requirementRoute } from "./routes/requirementsRoute";
 import { interviewRoute } from "./routes/interviewsRoute";
 import { vendorsRoute } from "./routes/vendorsRoute";
@@ -20,8 +21,7 @@ import { accessControlRoute } from "./routes/accessControlRoute";
 import { leaveRoute } from "./routes/leaveRoute";
 import morgan from "morgan";
 import { holidayRoute } from "./routes/holidayRoutes";
-dotenv.config({ path: "./config.env" });
-
+import initPassport from "./config/passport";
 const app = express();
 app.use(morgan("dev"));
 //Body Parser
@@ -31,7 +31,7 @@ app.use(cors());
 //Passport Middleware
 app.use(passport.initialize());
 app.use(passport.session());
-require("./config/passport")(passport);
+initPassport(passport);
 
 //Set Static folder
 app.use(express.static(path.join(__dirname, "public")));

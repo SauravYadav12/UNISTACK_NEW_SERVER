@@ -6,7 +6,6 @@ import {
   markAttendance,
   deleteAttendance,
 } from "../controllers/attendanceController";
-import { AttendanceModel } from "../models/attendance";
 
 const attendanceRoute = Router();
 

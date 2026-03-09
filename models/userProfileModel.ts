@@ -1,4 +1,4 @@
-import { Schema, model } from "mongoose";
+import { Schema, model, Document } from "mongoose";
 
 import { UserModel } from "./userModel";
 import {
@@ -7,6 +7,12 @@ import {
   ProfileEmail,
   UserProfile,
 } from "../interface/userProfile";
+
+export interface UserProfileDoc extends Omit<UserProfile, '_id' | 'user' | 'dob'>, Document {
+  _id: Schema.Types.ObjectId;
+  user: Schema.Types.ObjectId;
+  dob?: Date;
+}
 const urlValidator = {
   validator: (v: string) => !v || /^https:\/\/.+/.test(v),
   message: "Must be a valid HTTPS URL",
@@ -65,7 +71,7 @@ const profileEmailSchema = new Schema<ProfileEmail>({
   },
 });
 
-const userProfileSchema = new Schema<UserProfile>(
+const userProfileSchema = new Schema<UserProfileDoc>(
   {
     user: {
       unique: true,
@@ -111,7 +117,7 @@ const userProfileSchema = new Schema<UserProfile>(
   { timestamps: true }
 );
 
-export const UserProfileModel = model<UserProfile>(
+export const UserProfileModel = model<UserProfileDoc>(
   "UserProfile",
   userProfileSchema
 );

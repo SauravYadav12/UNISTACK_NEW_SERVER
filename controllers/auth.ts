@@ -3,6 +3,7 @@ import {
   addUser,
   comparePassword,
   getUserByEmail,
+  UserDoc,
   UserModel,
 } from "../models/userModel";
 import jwtDecode from "jwt-decode";
@@ -16,7 +17,7 @@ import {
 } from "../utils/mailTransporter";
 import { Request, Response } from "express";
 
-export function extractIUser(user: any) {
+export function extractIUser(user: UserDoc) {
   return {
     _id: user._id,
     id: user._id,
@@ -37,7 +38,7 @@ export function extractIUser(user: any) {
 // Signup funtion
 export const signup = (req: Request, res: Response) => {
   try {
-    let newUser = new UserModel({
+    const newUser = new UserModel({
       firstName: req.body.firstName,
       lastName: req.body.lastName,
       email: req.body.email,
@@ -46,7 +47,7 @@ export const signup = (req: Request, res: Response) => {
       gender: req.body.gender,
     });
 
-    addUser(newUser, (err: any, user: any) => {
+    addUser(newUser, (err, user) => {
       if (err) {
         res.status(400).json({
           message: "Failed to create User Or User Already exists.",
@@ -59,7 +60,13 @@ export const signup = (req: Request, res: Response) => {
         });
       }
     });
-  } catch (error) {}
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({
+      message: "Internal server error",
+      error,
+    });
+  }
 };
 export const addLogoutActivity = async (req: Request, res: Response) => {
   try {
@@ -72,16 +79,17 @@ export const addLogoutActivity = async (req: Request, res: Response) => {
     await UserModel.findByIdAndUpdate(
       _id,
       { $push: { activity } },
-      { new: true }
+      { new: true },
     );
     res.status(200).json({ status: "success" });
   } catch (error) {
+    console.log(error);
     res.status(400).json({ status: "failed" });
   }
 };
 // Login funtion
 export const login = async (req: Request, res: Response) => {
-  getUserByEmail(req.body.email, (err: any, user: any) => {
+  getUserByEmail(req.body.email, (err, user) => {
     if (err) throw err;
 
     if (!user) {
@@ -91,52 +99,48 @@ export const login = async (req: Request, res: Response) => {
       });
     }
 
-    comparePassword(
-      req.body.password,
-      user.password,
-      async (err: any, isMatch: boolean) => {
-        if (err) throw err;
+    comparePassword(req.body.password, user.password, async (err, isMatch) => {
+      if (err) throw err;
 
-        if (isMatch) {
-          if (user.active) {
-            const { ip, location } = req.body;
-            const activity = {
-              loggedInAt: new Date(),
-              ip,
-              location,
-            };
-            await UserModel.findByIdAndUpdate(
-              user._id,
-              {
-                $push: { activity },
-              },
-              { new: true }
-            );
-            const iUser = extractIUser(user);
+      if (isMatch) {
+        if (user.active) {
+          const { ip, location } = req.body;
+          const activity = {
+            loggedInAt: new Date(),
+            ip,
+            location,
+          };
+          await UserModel.findByIdAndUpdate(
+            user._id,
+            {
+              $push: { activity },
+            },
+            { new: true },
+          );
+          const iUser = extractIUser(user);
 
-            res.status(200).json({
-              user: iUser,
-            });
-          } else {
-            res.status(400).json({
-              message: "User is not active!",
-            });
-          }
+          res.status(200).json({
+            user: iUser,
+          });
         } else {
-          return res.status(400).json({
-            success: false,
-            message: "Invalid Password",
+          res.status(400).json({
+            message: "User is not active!",
           });
         }
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid Password",
+        });
       }
-    );
+    });
   });
 };
 export const syncIUser = async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
-    let user = await UserModel.findOne({ _id: id });
-    if (!user) {
+    const iUser = await UserModel.findOne({ _id: id.toString() });
+    if (!iUser) {
       res.status(400).json({
         status: "failed",
         error: "User not found",
@@ -144,7 +148,7 @@ export const syncIUser = async (req: Request, res: Response) => {
 
       return;
     }
-    user = extractIUser(user);
+    const user = extractIUser(iUser);
     res.status(200).json({
       status: "success",
       user,
@@ -169,10 +173,10 @@ export const dashboard = async (req: Request, res: Response) => {
 
 export const validate = (req: Request, res: Response) => {
   if (req.headers.authorization) {
-    let value = req.headers.authorization;
-    let [jwt, newToken] = value.split(" ");
+    const value = req.headers.authorization;
+    const [, newToken] = value.split(" ");
 
-    const decoded: any = jwtDecode(newToken);
+    const decoded = jwtDecode<{ user: { name: string } }>(newToken);
     res.json({
       authenticated: true,
       username: decoded?.user?.name,
@@ -194,11 +198,16 @@ export const resetPassword = async (req: Request, res: Response) => {
     return;
   }
 
+  if(typeof email !== "string" || typeof otp !== "string") {
+    res.status(400).json({ message: "Invalid email or otp." });
+    return;
+  }
+
   try {
     const user = await UserModel.findOne({
       email,
       otp,
-      otpExpiry: { $gt: Date.now() },
+      otpExpiry: { $gt: new Date() },
     });
 
     if (!user) {
@@ -209,8 +218,8 @@ export const resetPassword = async (req: Request, res: Response) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     user.password = hashedPassword;
-    user.resetPasswordToken = undefined;
-    user.resetPasswordExpires = undefined;
+    // user.resetPasswordToken = undefined;
+    // user.resetPasswordExpires = undefined;
     await user.save();
     res
       .status(200)
@@ -224,11 +233,17 @@ export const resetPassword = async (req: Request, res: Response) => {
 export const verifyOtp = async (req: Request, res: Response) => {
   const { otp, email } = req.params;
 
+
+  if(typeof email !== "string" || typeof otp !== "string") {
+    res.status(400).json({ message: "Invalid email or otp." });
+    return;
+  }
+
   try {
     const user = await UserModel.findOne({
       email,
       otp: otp,
-      otpExpiry: { $gt: Date.now() },
+      otpExpiry: { $gt: new Date() },
     });
 
     if (!user) {
@@ -245,7 +260,7 @@ export const verifyOtp = async (req: Request, res: Response) => {
       process.env.JWT_SECRET_KEY || "unistack",
       {
         expiresIn: "10h",
-      }
+      },
     );
 
     res.status(200).json({
@@ -254,6 +269,7 @@ export const verifyOtp = async (req: Request, res: Response) => {
       status: true,
     });
   } catch (error) {
+    console.log(error);
     res.status(500).json({ message: "Internal server error." });
   }
 };
@@ -272,7 +288,7 @@ const generateAndStoreOTP = async (email: string) => {
 
   const now = Date.now();
   user.otp = otp;
-  user.otpExpiry = now + otpExpiryInMs;
+  user.otpExpiry = new Date(now + otpExpiryInMs);
 
   await user.save();
   return { otp };

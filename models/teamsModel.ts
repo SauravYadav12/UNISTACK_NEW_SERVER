@@ -1,6 +1,13 @@
-import mongoose from "mongoose";
+import mongoose, { Document } from "mongoose";
+import { ITeam } from "../interface/modelInterfaces";
 
-const teams = new mongoose.Schema(
+export interface TeamDoc extends Omit<ITeam, '_id' | 'createdAt' | 'updatedAt'>, Document {
+  _id: mongoose.Types.ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const teams = new mongoose.Schema<TeamDoc>(
   {
     teamId: {
       type: String,
@@ -25,4 +32,4 @@ const teams = new mongoose.Schema(
   }
 );
 
-export const TeamsModel = mongoose.model("Teams", teams);
+export const TeamsModel = mongoose.model<TeamDoc>("Teams", teams);

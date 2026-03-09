@@ -1,7 +1,15 @@
-import mongoose from "mongoose";
+import mongoose, { Document, FilterQuery } from "mongoose";
 import { dateValidator, HalfDayType } from "./leaveModel";
+import { IHoliday } from "../interface/modelInterfaces";
 
-const holiday = new mongoose.Schema(
+export interface HolidayDoc
+  extends Omit<IHoliday, "_id" | "createdAt" | "updatedAt">, Document {
+  _id: mongoose.Types.ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const holiday = new mongoose.Schema<HolidayDoc>(
   {
     name: String,
     description: String,
@@ -23,27 +31,30 @@ const holiday = new mongoose.Schema(
       type: String,
       enum: Object.values(HalfDayType),
       required: function () {
-        return (this as any)?.isHalfDay;
+        if ("isHalfDay" in this) {
+          return this?.isHalfDay;
+        }
+        return false;
       },
     },
   },
   {
     timestamps: true,
-  }
+  },
 );
 
-export const HolidayModel = mongoose.model("Holiday", holiday);
+export const HolidayModel = mongoose.model<HolidayDoc>("Holiday", holiday);
 
 export const checkHolidayOverlap = async (
   fromDate: string | undefined,
   toDate: string | undefined,
-  excludeId?: string
+  excludeId?: string,
 ): Promise<boolean> => {
   if (!fromDate && !toDate) {
     throw new Error("At least one date (fromDate or toDate) is required");
   }
 
-  const query: any = {
+  const query: FilterQuery<HolidayDoc> = {
     $or: [],
   };
 
@@ -52,7 +63,7 @@ export const checkHolidayOverlap = async (
       throw new Error("fromDate cannot be after toDate");
     }
 
-    query.$or.push(
+    query.$or?.push(
       {
         fromDate: { $lte: toDate },
         toDate: { $gte: fromDate },
@@ -60,15 +71,15 @@ export const checkHolidayOverlap = async (
       {
         fromDate: { $gte: fromDate },
         toDate: { $lte: toDate },
-      }
+      },
     );
   } else if (fromDate) {
-    query.$or.push({
+    query.$or?.push({
       fromDate: { $lte: fromDate },
       toDate: { $gte: fromDate },
     });
   } else if (toDate) {
-    query.$or.push({
+    query.$or?.push({
       fromDate: { $lte: toDate },
       toDate: { $gte: toDate },
     });

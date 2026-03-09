@@ -1,6 +1,16 @@
-import { Schema, model } from "mongoose";
+import { Schema, model, Document } from "mongoose";
 import { UserModel } from "./userModel";
 import { isFormateValid, attendanceDateFormate } from "../utils/utils";
+import { ILeave } from "../interface/modelInterfaces";
+
+export interface LeaveDoc extends Omit<ILeave, '_id' | 'userRef' | 'respondBy' | 'respondedAt' | 'createdAt' | 'updatedAt'>, Document {
+  _id: Schema.Types.ObjectId;
+  userRef: Schema.Types.ObjectId;
+  respondBy?: Schema.Types.ObjectId;
+  respondedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
 enum LeaveType {
   SickLeave = "Sick Leave",
@@ -27,7 +37,7 @@ export const dateValidator = {
   message: "Date must be in " + attendanceDateFormate + " format.",
 };
 
-const leaveSchema = new Schema(
+const leaveSchema = new Schema<LeaveDoc>(
   {
     userRef: {
       required: true,
@@ -79,7 +89,10 @@ const leaveSchema = new Schema(
       type: String,
       enum: Object.values(HalfDayType),
       required: function () {
-        return (this as any)?.isHalfDay;
+        if ("isHalfDay" in this) {
+          return this?.isHalfDay;
+        }
+        return false;
       },
     },
     attachments: [String],
@@ -87,4 +100,4 @@ const leaveSchema = new Schema(
   { timestamps: true }
 );
 
-export const LeaveModel = model("Leave", leaveSchema);
+export const LeaveModel = model<LeaveDoc>("Leave", leaveSchema);

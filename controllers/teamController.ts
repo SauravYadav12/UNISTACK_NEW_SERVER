@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { TeamsModel } from "../models/teamsModel";
 import { paginationInstance } from "../utils/pagination";
-import { sequenceId } from "../utils/utils";
+import { getErrorMessage, sequenceId } from "../utils/utils";
 import {
   handleSearchString,
   searchableFields,
@@ -24,8 +24,10 @@ export const getAllTeams = async (req: Request, res: Response) => {
       data,
     });
   } catch (error) {
+    console.error("Error fetching teams:", error);
     res.status(400).json({
       status: "failed",
+      error: getErrorMessage(error),
     });
   }
 };
@@ -42,13 +44,13 @@ export const createTeam = async (req: Request, res: Response) => {
     console.log(error);
     res.status(400).json({
       status: "failed",
+      error: getErrorMessage(error),
     });
   }
 };
 
 export const updateTeam = async (req: Request, res: Response) => {
   try {
-    const id = req.params.id;
     const data = await TeamsModel.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
     });
@@ -64,9 +66,10 @@ export const updateTeam = async (req: Request, res: Response) => {
       data: data,
     });
   } catch (error) {
+    console.log(error);
     res.status(400).json({
       status: "failed",
-      error,
+      error: getErrorMessage(error),
     });
   }
 };
@@ -87,10 +90,11 @@ export const deleteTeam = async (req: Request, res: Response) => {
       message: "Team deleted successfully",
       deleteTeam,
     });
-  } catch (error: any) {
+  } catch (error) {
+    console.error("Error deleting team:", error);
     res.status(500).json({
       status: "failed",
-      error: error.message,
+      error: getErrorMessage(error),
     });
   }
 };

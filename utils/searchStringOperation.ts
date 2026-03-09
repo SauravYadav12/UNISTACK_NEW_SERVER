@@ -5,12 +5,24 @@ import { stringDateFormate } from "./utils";
 
 const dateFields = ["createdAt", "updatedAt"];
 const stringTypeDateFields = ["interviewDate"];
-export function handleSearchString(query: any, searchFields: string[]) {
+
+export function handleSearchString(
+  query: Record<string, unknown>,
+  searchFields: string[],
+) {
+  const extractVal = (val: unknown) => {
+    if (typeof val === "string") return val;
+    if (Array.isArray(val)) return val;
+    return [];
+  };
   const orQueries: MongooseQueryOptions[] = [];
-  let searchString: string[] | string = query.searchString || [];
-  let qSearchFields: string[] | string | undefined = query.searchField;
-  let caseInsensitiveFields: string[] | string =
-    query.caseInsensitiveFields || [];
+  let searchString: string[] | string = extractVal(query.searchString);
+  const qSearchFields: string[] | string | undefined = extractVal(
+    query.searchField,
+  );
+  let caseInsensitiveFields: string[] | string = extractVal(
+    query.caseInsensitiveFields,
+  );
 
   searchString = Array.isArray(searchString) ? searchString : [searchString];
 
@@ -29,7 +41,7 @@ export function handleSearchString(query: any, searchFields: string[]) {
     val: string,
     options?: {
       caseInsensitiveExactMatch: boolean;
-    }
+    },
   ) {
     if (dateFields.includes(field)) {
       const { from, to } = myDate(val, val);
@@ -59,7 +71,7 @@ export function handleSearchString(query: any, searchFields: string[]) {
   });
 
   caseInsensitiveFields.forEach((field) => {
-    if (query?.hasOwnProperty?.(field)) {
+    if (field in query && typeof query[field] === "string") {
       applyQuery(field, query[field], { caseInsensitiveExactMatch: true });
 
       delete query[field];

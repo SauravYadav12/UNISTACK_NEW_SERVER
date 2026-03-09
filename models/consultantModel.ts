@@ -1,6 +1,24 @@
-import mongoose from "mongoose";
+import mongoose, { Document } from "mongoose";
+import { IConsultant } from "../interface/modelInterfaces";
 
-const consultant = new mongoose.Schema(
+export interface ConsultantDoc extends Omit<IConsultant, '_id' | 'createdAt' | 'updatedAt' | 'projects'>, Document {
+  _id: mongoose.Types.ObjectId;
+  projects?: Array<{
+    projectNumber?: string;
+    projectName?: string;
+    projectCity?: string;
+    projectState?: string;
+    projectStartDate?: Date;
+    projectEndDate?: Date;
+    projectDescription?: string;
+    isCurrent?: boolean;
+    projectDomain?: string;
+  }>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const consultant = new mongoose.Schema<ConsultantDoc>(
   {
     consultantId: {
       type: String,
@@ -92,4 +110,4 @@ const consultant = new mongoose.Schema(
   }
 );
 
-export const ConsultantModel = mongoose.model("Consultant", consultant);
+export const ConsultantModel = mongoose.model<ConsultantDoc>("Consultant", consultant);

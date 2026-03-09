@@ -4,7 +4,7 @@ import { handleAttendanceDateQueryParams } from "../utils/utils";
 
 export const getAttendanceList = async (req: Request, res: Response) => {
   try {
-    const { error, query } = handleAttendanceDateQueryParams(req.query);
+    const { error, query = {} } = handleAttendanceDateQueryParams(req.query);
     if (error) {
       res.status(400).json({
         error,
@@ -36,8 +36,8 @@ export const markAttendance = async (req: Request, res: Response) => {
       toDate: date,
     };
 
-    const { error, query } = handleAttendanceDateQueryParams(q);
-    
+    const { error, query = {} } = handleAttendanceDateQueryParams(q);
+
     if (error) {
       res.status(400).json({
         error,

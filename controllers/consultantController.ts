@@ -1,18 +1,18 @@
 import { Request, Response } from "express";
-import { ConsultantModel } from "../models/consultantModel";
+import { ConsultantDoc, ConsultantModel } from "../models/consultantModel";
 import { paginationInstance } from "../utils/pagination";
-import { sequenceId } from "../utils/utils";
+import { getErrorMessage, sequenceId } from "../utils/utils";
 import {
   handleSearchString,
   searchableFields,
 } from "../utils/searchStringOperation";
 
-function sortProjectsOfConsultant(consultant: any[]) {
+function sortProjectsOfConsultant(consultant: ConsultantDoc[]) {
   try {
-    const consultantWithSortedProjects = consultant.map((cons: any) => {
+    const consultantWithSortedProjects = consultant.map((cons) => {
       const consultantObj = cons.toObject();
       if (consultantObj.projects && consultantObj.projects.length > 0) {
-        consultantObj.projects.sort((a: any, b: any) => {
+        consultantObj.projects.sort((a, b) => {
           const startDateA = a.projectStartDate
             ? new Date(a.projectStartDate).getTime()
             : 0;
@@ -52,6 +52,7 @@ export const getAllConsultants = async (req: Request, res: Response) => {
       data,
     });
   } catch (error) {
+    console.error("Error fetching consultants:", error);
     res.status(400).json({
       status: "failed",
     });
@@ -122,10 +123,11 @@ export const deleteConsultant = async (req: Request, res: Response) => {
       message: "Consultant deleted successfully",
       deleteConsultant,
     });
-  } catch (error: any) {
+  } catch (error) {
+    console.error("Error deleting consultant:", error);
     res.status(500).json({
       status: "failed",
-      error: error.message,
+      error: getErrorMessage(error),
     });
   }
 };

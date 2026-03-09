@@ -4,7 +4,7 @@ import { checkHolidayOverlap, HolidayModel } from "../models/holidayModel";
 
 export const getHolidays = async (req: Request, res: Response) => {
   try {
-    const { error, query } = handleAttendanceDateQueryParams(req.query);
+    const { error, query = {} } = handleAttendanceDateQueryParams(req.query);
     if (error) {
       res.status(400).json({
         error,
@@ -32,7 +32,7 @@ export const markHoliday = async (req: Request, res: Response) => {
     }
     const isOverlapping = await checkHolidayOverlap(
       fromDate,
-      toDate || fromDate
+      toDate || fromDate,
     );
 
     if (isOverlapping) {
@@ -60,7 +60,11 @@ export const updateHoliday = async (req: Request, res: Response) => {
     const { fromDate, toDate } = req.body;
 
     if (fromDate || toDate) {
-      const isOverlapping = await checkHolidayOverlap(fromDate, toDate, id.toString());
+      const isOverlapping = await checkHolidayOverlap(
+        fromDate,
+        toDate,
+        id.toString(),
+      );
 
       if (isOverlapping) {
         res.status(400).json({

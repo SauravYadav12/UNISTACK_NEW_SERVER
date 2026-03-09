@@ -5,7 +5,7 @@ import {
   getMarketingReport,
   getSupportReport,
 } from "../controllers/reportController";
-const passport = require("passport");
+import passport from "passport";
 const reportRoute = Router();
 
 reportRoute.get(

@@ -1,19 +1,26 @@
-const JwtStrategy = require("passport-jwt").Strategy;
-const ExtractJwt = require("passport-jwt").ExtractJwt;
+import {
+  Strategy as JwtStrategy,
+  ExtractJwt,
+  StrategyOptionsWithoutRequest,
+} from "passport-jwt";
 import { getUserById } from "../models/userModel";
 import dotenv from "dotenv";
+import { PassportStatic } from "passport";
 
 dotenv.config({ path: "./config.env" });
 
-module.exports = function (passport: any) {
-  let options: any = {};
+export default function (passport: PassportStatic) {
+  const options: StrategyOptionsWithoutRequest = {
+    jwtFromRequest: ExtractJwt.fromAuthHeaderWithScheme("JWT"),
+    secretOrKey: process.env.JWT_SECRET_KEY || "your_jwt_secret_key",
+  };
 
-  options.jwtFromRequest = ExtractJwt.fromAuthHeaderWithScheme("JWT");
-  options.secretOrKey = process.env.JWT_SECRET_KEY;
 
   passport.use(
-    new JwtStrategy(options, (jwt_payload: any, done: any) => {
-    //   console.log('jwt_payload---------------------------------------------');
+    new JwtStrategy(options, (jwt_payload, done) => {
+      if (!jwt_payload?.user?._id) {
+        return done(new Error("Invalid token payload"), false);
+      }
 
       getUserById(jwt_payload.user._id, (err, user) => {
         if (err) {
@@ -26,6 +33,6 @@ module.exports = function (passport: any) {
           return done(null, false);
         }
       });
-    })
+    }),
   );
-};
+}

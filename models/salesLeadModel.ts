@@ -1,16 +1,28 @@
-import { Schema, model } from "mongoose";
+import { Schema, model, Document } from "mongoose";
 import { SalesLead } from "../interface/salesLead";
 import { UserModel } from "./userModel";
 import mongoose from "mongoose";
+import { ISalesLeadComment } from "../interface/modelInterfaces";
 
-export const commentSchema = new Schema({
+export interface SalesLeadDoc extends Omit<SalesLead, '_id' | 'assignedToRef'>, Document {
+  _id: mongoose.Types.ObjectId;
+  assignedToRef?: mongoose.Types.ObjectId;
+}
+
+export interface SalesLeadCommentDoc extends Omit<ISalesLeadComment, '_id' | 'commentBy' | 'date'>, Document {
+  _id: mongoose.Types.ObjectId;
+  commentBy: mongoose.Types.ObjectId;
+  date?: Date;
+}
+
+export const commentSchema = new Schema<SalesLeadCommentDoc>({
   name: { type: String, required: true },
   commentBy: { type: Schema.Types.ObjectId, ref: UserModel, required: true },
   comment: { type: String, required: true },
   date: { type: Date, default: Date.now },
 });
 
-const salesLeadSchema = new Schema<SalesLead>(
+const salesLeadSchema = new Schema<SalesLeadDoc>(
   {
     firstName: {
       type: String,
@@ -66,4 +78,4 @@ const salesLeadSchema = new Schema<SalesLead>(
   { timestamps: true }
 );
 
-export const SalesLeadModel = model<SalesLead>("SalesLead", salesLeadSchema);
+export const SalesLeadModel = model<SalesLeadDoc>("SalesLead", salesLeadSchema);

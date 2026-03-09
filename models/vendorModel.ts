@@ -1,8 +1,19 @@
-import mongoose from "mongoose";
+import mongoose, { Document } from "mongoose";
 import { UserModel } from "./userModel";
 import { ConsultantModel } from "./consultantModel";
 import { TeamsModel } from "./teamsModel";
-const vendorSchema = new mongoose.Schema(
+import { IVendor } from "../interface/modelInterfaces";
+
+export interface VendorDoc extends Omit<IVendor, '_id' | 'consultantRef' | 'marketingPersonRef' | 'candidateRef' | 'createdAt' | 'updatedAt'>, Document {
+  _id: mongoose.Types.ObjectId;
+  consultantRef?: mongoose.Types.ObjectId;
+  marketingPersonRef?: mongoose.Types.ObjectId;
+  candidateRef?: mongoose.Types.ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const vendorSchema = new mongoose.Schema<VendorDoc>(
   {
     testID: {
       type: String,
@@ -145,4 +156,4 @@ const vendorSchema = new mongoose.Schema(
   }
 );
 
-export const VendorModel = mongoose.model("Vendor", vendorSchema);
+export const VendorModel = mongoose.model<VendorDoc>("Vendor", vendorSchema);

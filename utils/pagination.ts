@@ -1,15 +1,17 @@
-import { Collection, Model } from "mongoose";
+import { Collection, Model, Document } from "mongoose";
 import { handlePaginationQuery } from "./utils";
 
-export const paginationInstance = async (
-  reqQuery: any,
-  collection: Collection | Model<any, {}, {}>
+export const paginationInstance = async <T extends Document>(
+  reqQuery: Record<string, unknown>,
+  collection: Collection | Model<T> | Model<unknown>,
 ): Promise<PaginationInstance> => {
   const options = handlePaginationQuery(reqQuery);
   const { query, page, limit, startIndex, endIndex } = options;
-  const totalDocuments: number = await (collection as any).countDocuments(
-    query
-  );
+
+  const totalDocuments: number = await (
+    collection as Model<unknown>
+  ).countDocuments(query);
+
   const totalPages = Math.ceil(totalDocuments / limit);
 
   const instance: MyPaginationInstance = {
@@ -47,7 +49,7 @@ export interface MyPaginationInstance {
   totalDocuments?: number;
 }
 export interface PaginationOptions {
-  query: any;
+  query: Record<string, unknown>;
   page: number;
   limit: number;
   startIndex: number;

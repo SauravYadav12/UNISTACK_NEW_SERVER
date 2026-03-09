@@ -1,8 +1,18 @@
-import { Schema, model } from "mongoose";
+import { Schema, model, Document } from "mongoose";
 import { UserModel } from "./userModel";
 import { attendanceDateFormate, isFormateValid } from "../utils/utils";
+import { IAttendance } from "../interface/modelInterfaces";
 
-const attendanceSchema = new Schema(
+export interface AttendanceDoc extends Omit<IAttendance, '_id' | 'userRef' | 'checkIn' | 'checkOut' | 'createdAt' | 'updatedAt'>, Document {
+  _id: Schema.Types.ObjectId;
+  userRef: Schema.Types.ObjectId;
+  checkIn?: Date;
+  checkOut?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const attendanceSchema = new Schema<AttendanceDoc>(
   {
     userRef: {
       required: true,
@@ -32,4 +42,4 @@ const attendanceSchema = new Schema(
   { timestamps: true }
 );
 
-export const AttendanceModel = model("Attendance", attendanceSchema);
+export const AttendanceModel = model<AttendanceDoc>("Attendance", attendanceSchema);

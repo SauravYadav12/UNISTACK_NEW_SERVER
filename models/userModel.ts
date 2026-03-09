@@ -1,11 +1,25 @@
-import mongoose from "mongoose";
+import mongoose, { CallbackError, Document } from "mongoose";
 import bcrypt from "bcryptjs";
 import { UserShift, WorkLocation } from "../interface/constants";
 import { UserRole } from "../enums/UserEnum";
+import { IUser } from "../interface/modelInterfaces";
+
+export interface UserDoc extends Omit<IUser, '_id' | 'createdAt' | 'updatedAt' | 'otpExpiry' | 'activity'>, Document {
+  _id: mongoose.Types.ObjectId;
+  otpExpiry?: Date;
+  activity?: Array<{
+    loggedInAt?: Date;
+    loggedOutAt?: Date;
+    location?: string;
+    ip?: string;
+  }>;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
 export const allowdDomains = ["unicodez.com", "team.unicodez.com"];
 
-const UserSchema = new mongoose.Schema(
+const UserSchema = new mongoose.Schema<UserDoc>(
   {
     firstName: {
       type: String,
@@ -23,7 +37,7 @@ const UserSchema = new mongoose.Schema(
           const domain = email?.split("@")[1];
           return allowdDomains.includes(domain);
         },
-        message: (props: any) => `${props.value} invalid email!`,
+        message: (props: { value: string }) => `${props.value} invalid email!`,
       },
     },
     password: {
@@ -93,8 +107,8 @@ UserSchema.pre("save", function (next) {
   const thirtyDaysAgo = new Date(now.setDate(now.getDate() - 30 * 3));
 
   // Filter out activity logs older than 3 months
-  (this as any).activity = ((this as any).activity || []).filter(
-    ({ loggedInAt, loggedOutAt }: any) => {
+  (this).activity = ((this).activity || []).filter(
+    ({ loggedInAt, loggedOutAt }) => {
       return (
         (loggedInAt && loggedInAt > thirtyDaysAgo) ||
         (loggedOutAt && loggedOutAt > thirtyDaysAgo)
@@ -105,22 +119,23 @@ UserSchema.pre("save", function (next) {
   next();
 });
 
-export const UserModel = mongoose.model("User", UserSchema);
+export const UserModel = mongoose.model<UserDoc>("User", UserSchema);
 
 // Get user By ID
 export const getUserById = function (
   id: string,
-  callback: (err: string, res: any) => void
+  callback: (err: CallbackError, res: UserDoc | null) => void
 ) {
   UserModel.findById(id, callback);
 };
 
 // Adding a User
-export const addUser = function (newUser: any, callback: any) {
+export const addUser = function (newUser: UserDoc, callback: (err: CallbackError, res: UserDoc | null) => void) {
   bcrypt.genSalt(10, (err, salt) => {
     bcrypt.hash(newUser.password, salt, (err, hash) => {
       if (err) {
         console.log(err);
+        callback(err, null);
       } else {
         newUser.password = hash;
         newUser.save(callback);
@@ -131,7 +146,7 @@ export const addUser = function (newUser: any, callback: any) {
 
 // Get User by Email
 
-export const getUserByEmail = function (email: string, callback: any) {
+export const getUserByEmail = function (email: string, callback: (err: CallbackError, res: UserDoc | null) => void) {
   const query = { email };
   UserModel.findOne(query, callback);
 };
@@ -140,7 +155,7 @@ export const getUserByEmail = function (email: string, callback: any) {
 export const comparePassword = function (
   candidatePassword: string,
   hash: string,
-  callback: any
+  callback: (err: CallbackError, isMatch: boolean) => void
 ) {
   bcrypt.compare(candidatePassword, hash, (err, isMatch) => {
     if (err) throw err;

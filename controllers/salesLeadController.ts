@@ -10,8 +10,8 @@ export const getSalesLeads = async (req: Request, res: Response) => {
   try {
     const iQuery = handleSearchString(req.query, searchableFields.salesLead);
     const { options, instance } = await paginationInstance(
-      req.query,
-      SalesLeadModel
+      iQuery,
+      SalesLeadModel,
     );
     const { startIndex, query, limit } = options;
     const salesLeads = await SalesLeadModel.find(query)
@@ -64,7 +64,7 @@ export const updateSalesLead = async (req: Request, res: Response) => {
     const updatedSalesLead = await SalesLeadModel.findByIdAndUpdate(
       id,
       req.body,
-      { new: true }
+      { new: true },
     );
 
     if (!updatedSalesLead) {
@@ -106,9 +106,9 @@ export const createComment = async (req: Request, res: Response) => {
       return;
     }
     const updatedSalesLead = await SalesLeadModel.findOneAndUpdate(
-      { _id: salesLeadId },
+      { _id: salesLeadId.toString() },
       { $push: { comments: { name, comment, commentBy } } },
-      { new: true }
+      { new: true },
     );
 
     if (!updatedSalesLead) {
