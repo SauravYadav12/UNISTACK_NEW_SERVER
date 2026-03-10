@@ -12,14 +12,14 @@ export interface LeaveDoc extends Omit<ILeave, '_id' | 'userRef' | 'respondBy' |
   updatedAt: Date;
 }
 
-enum LeaveType {
+export enum LeaveType {
   SickLeave = "Sick Leave",
   CasualLeave = "Casual Leave",
   AnnualLeave = "Annual Leave",
   Other = "Other",
 }
 
-enum LeaveStatus {
+export  enum LeaveStatus {
   Pending = "Pending",
   Approved = "Approved",
   Rejected = "Rejected",
@@ -85,6 +85,7 @@ const leaveSchema = new Schema<LeaveDoc>(
       type: Boolean,
       default: false,
     },
+    emailRefIds: [String],
     halfDayType: {
       type: String,
       enum: Object.values(HalfDayType),

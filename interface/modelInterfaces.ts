@@ -1,5 +1,6 @@
 import { UserShift, WorkLocation } from './constants';
 import { UserRole } from '../enums/UserEnum';
+import { AttendanceStatus } from '../models/attendance';
 
 // Teams Interface
 export interface ITeam {
@@ -48,7 +49,7 @@ export interface IAttendance {
   date: string;
   checkIn?: string;
   checkOut?: string;
-  status?: 'Present' | 'Absent' | 'Late' | 'Half-Day';
+  status?: AttendanceStatus;
   createdAt: string;
   updatedAt: string;
 }
@@ -165,6 +166,7 @@ export interface ILeave {
   isHalfDay?: boolean;
   halfDayType?: 'First Half' | 'Second Half';
   attachments?: string[];
+  emailRefIds?: string[];
   createdAt: string;
   updatedAt: string;
 }

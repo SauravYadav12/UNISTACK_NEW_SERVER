@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { AttendanceModel } from "../models/attendance";
+import { AttendanceModel, AttendanceStatus } from "../models/attendance";
 import { handleAttendanceDateQueryParams } from "../utils/utils";
 
 export const getAttendanceList = async (req: Request, res: Response) => {
@@ -23,37 +23,41 @@ export const getAttendanceList = async (req: Request, res: Response) => {
   }
 };
 
+export const handleMarkAttendance = async (body: {
+  userRef: string;
+  date: string;
+  status: AttendanceStatus;
+}) => {
+  const { userRef, date } = body;
+  if (!date) {
+    throw new Error(`date is required`);
+  }
+  const q = {
+    userRef,
+    fromDate: date,
+    toDate: date,
+  };
+
+  const { error, query = {} } = handleAttendanceDateQueryParams(q);
+
+  if (error) {
+    throw new Error(error);
+  }
+  const isAlreadyMarkedForDate = await AttendanceModel.exists(query);
+
+  if (isAlreadyMarkedForDate) {
+    throw new Error(`Aleady Marked for date ${date}`);
+  }
+  const newAttendance = new AttendanceModel({
+    ...body,
+  });
+
+  return await newAttendance.save();
+};
+
 export const markAttendance = async (req: Request, res: Response) => {
   try {
-    const { userRef, date } = req.body;
-    if (!date) {
-      res.status(404).json({ error: `date is required` });
-      return;
-    }
-    const q = {
-      userRef,
-      fromDate: date,
-      toDate: date,
-    };
-
-    const { error, query = {} } = handleAttendanceDateQueryParams(q);
-
-    if (error) {
-      res.status(400).json({
-        error,
-      });
-    }
-    const isAlreadyMarkedForDate = await AttendanceModel.exists(query);
-
-    if (isAlreadyMarkedForDate) {
-      res.status(404).json({ error: `Aleady Marked for date ${date}` });
-      return;
-    }
-    const newAttendance = new AttendanceModel({
-      ...req.body,
-    });
-
-    const savedAttendance = await newAttendance.save();
+    const savedAttendance = await handleMarkAttendance(req.body);
     res.status(201).json({ data: savedAttendance });
   } catch (error) {
     res.status(500).json({ error: error });

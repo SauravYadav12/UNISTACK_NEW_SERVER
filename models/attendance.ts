@@ -12,6 +12,13 @@ export interface AttendanceDoc extends Omit<IAttendance, '_id' | 'userRef' | 'ch
   updatedAt: Date;
 }
 
+export enum AttendanceStatus {
+  Present = "Present",
+  Absent = "Absent",
+  Late = "Late",
+  HalfDay = "Half-Day",
+}
+
 const attendanceSchema = new Schema<AttendanceDoc>(
   {
     userRef: {
@@ -37,7 +44,7 @@ const attendanceSchema = new Schema<AttendanceDoc>(
       type: Date,
     },
 
-    status: { type: String, enum: ["Present", "Absent", "Late", "Half-Day"] },
+    status: { type: String, enum: Object.values(AttendanceStatus) },
   },
   { timestamps: true }
 );
