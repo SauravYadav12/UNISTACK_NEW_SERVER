@@ -4,6 +4,7 @@ import passport from "passport";
 import {
   createLeave,
   deleteLeave,
+  getLeaveById,
   getLeaves,
   updateLeave,
 } from "../controllers/leaveController";
@@ -13,6 +14,11 @@ leaveRoute.post(
   "/",
   passport.authenticate("jwt", { session: false }),
   createLeave
+);
+leaveRoute.get(
+  "/:id",
+  passport.authenticate("jwt", { session: false }),
+  getLeaveById
 );
 leaveRoute.patch(
   "/:id",

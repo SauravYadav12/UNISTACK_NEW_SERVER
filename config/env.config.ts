@@ -59,6 +59,8 @@ const ENV_VARS = {
 
 
     COMPANY_EMAIL : process.env.COMPANY_EMAIL,
+
+    FRONTEND_URL : process.env.FRONTEND_URL,
 }
 
 logMissingEnvVars(ENV_VARS, "Missing environment variables in config.env");

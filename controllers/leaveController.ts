@@ -37,6 +37,17 @@ export const getLeaves = async (req: Request, res: Response) => {
   }
 };
 
+export const getLeaveById = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const leave = await LeaveModel.findById(id).exec();
+    res.status(200).json({ data: leave });
+  } catch (error) {
+    console.error("Error in getLeaveById: ", error);
+    res.status(500).json({ error: error });
+  }
+};
+
 export const createLeave = async (req: Request, res: Response) => {
   try {
     const user = req.user as UserDoc;
