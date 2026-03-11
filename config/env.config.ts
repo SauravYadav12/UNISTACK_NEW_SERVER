@@ -56,6 +56,9 @@ const ENV_VARS = {
     SMTP_PASS : process.env.SMTP_PASS,
     SMTP_USER : process.env.SMTP_USER,
     SMTP_PORT : process.env.SMTP_PORT,
+
+
+    COMPANY_EMAIL : process.env.COMPANY_EMAIL,
 }
 
 logMissingEnvVars(ENV_VARS, "Missing environment variables in config.env");

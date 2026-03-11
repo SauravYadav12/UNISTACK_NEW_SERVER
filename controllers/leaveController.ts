@@ -9,6 +9,7 @@ import { MailOptions } from "nodemailer/lib/sendmail-transport";
 import moment from "moment";
 import { AttendanceStatus } from "../models/attendance";
 import { handleMarkAttendance } from "./attendanceController";
+import ENV_VARS from "../config/env.config";
 
 function getEmailSubject(user: IUser | UserDoc) {
   const fullname =
@@ -48,7 +49,7 @@ export const createLeave = async (req: Request, res: Response) => {
     const emailHtml = await getLeaveRequestTemplate(data.toObject<ILeave>());
     const mailOptions = {
       from: user.email,
-      to: "anurag.dhurwey@unicodez.com",
+      to: ENV_VARS.COMPANY_EMAIL,
       subject: getEmailSubject(user),
       html: emailHtml,
     };
@@ -107,7 +108,7 @@ export const updateLeave = async (req: Request, res: Response) => {
         updatedLeave.emailRefIds?.[updatedLeave.emailRefIds?.length - 1];
 
       const mailOptions: MailOptions = {
-        from: "info@unicodez.com",
+        from: ENV_VARS.COMPANY_EMAIL,
         to: recepient?.email,
         subject: (lastMailRef ? "Re: " : "") + getEmailSubject(recepient),
         html: emailHtml,

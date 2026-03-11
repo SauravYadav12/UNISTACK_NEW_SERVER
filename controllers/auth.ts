@@ -308,7 +308,7 @@ export const sendOtpToResetPassword = async (req: Request, res: Response) => {
       return;
     }
     const mailOptions = {
-      from: "info@unicodez.com",
+      from: ENV_VARS.COMPANY_EMAIL,
       to: email,
       subject: "One time password",
       html: resetPasswordOtpTemplate(otp),
@@ -334,7 +334,7 @@ export const sendOtpToLogin = async (req: Request, res: Response) => {
       return;
     }
     const mailOptions = {
-      from: "info@unicodez.com",
+      from: ENV_VARS.COMPANY_EMAIL,
       to: email,
       subject: "One time password",
       html: loginOtpTemplate(otp),
