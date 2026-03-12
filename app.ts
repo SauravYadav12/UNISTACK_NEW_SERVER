@@ -23,6 +23,7 @@ import morgan from "morgan";
 import { holidayRoute } from "./routes/holidayRoutes";
 import initPassport from "./config/passport";
 import ENV_VARS from "./config/env.config";
+import { salaryStructureRoute } from "./routes/salaryStructureRoutes";
 const app = express();
 app.use(morgan("dev"));
 //Body Parser
@@ -71,6 +72,7 @@ app.use("/attendance", attendanceRoute);
 app.use("/access-control", accessControlRoute);
 app.use("/leaves", leaveRoute);
 app.use("/holidays", holidayRoute);
+app.use("/salary-structures", salaryStructureRoute);
 
 //PORT
 const port = ENV_VARS.PORT || 5000;

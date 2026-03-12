@@ -7,11 +7,15 @@ import {
   ProfileEmail,
   UserProfile,
 } from "../interface/userProfile";
+import { SalaryStructure } from "../interface/salary.structure";
+import salaryStructureSchema from "./salaryStructureSchema";
 
-export interface UserProfileDoc extends Omit<UserProfile, '_id' | 'user' | 'dob'>, Document {
+export interface UserProfileDoc
+  extends Omit<UserProfile, "_id" | "user" | "dob">, Document {
   _id: Schema.Types.ObjectId;
   user: Schema.Types.ObjectId;
   dob?: Date;
+  salaryStructure?: SalaryStructure;
 }
 const urlValidator = {
   validator: (v: string) => !v || /^https:\/\/.+/.test(v),
@@ -113,11 +117,15 @@ const userProfileSchema = new Schema<UserProfileDoc>(
     panCopy: { type: String, validate: urlValidator, default: "" },
     aadharCopy: { type: String, validate: urlValidator, default: "" },
     resume: { type: String, validate: urlValidator, default: "" },
+    salaryStructure: {
+      type: salaryStructureSchema,
+      select: false,
+    },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 export const UserProfileModel = model<UserProfileDoc>(
   "UserProfile",
-  userProfileSchema
+  userProfileSchema,
 );
