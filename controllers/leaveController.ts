@@ -7,9 +7,11 @@ import { sendMail } from "../utils/mailTransporter";
 import { UserModel } from "../models/userModel";
 import { MailOptions } from "nodemailer/lib/sendmail-transport";
 import moment from "moment";
-import { AttendanceStatus } from "../models/attendance";
+import { AttendanceModel, AttendanceStatus } from "../models/attendance";
 import { handleMarkAttendance } from "./attendanceController";
 import ENV_VARS from "../config/env.config";
+import { attendanceDateFormate } from "../utils/utils";
+import z from "zod";
 
 function getEmailSubject(user: IUser | UserDoc) {
   const fullname =
@@ -185,6 +187,92 @@ export const deleteLeave = async (req: Request, res: Response) => {
     }
 
     res.status(200).json({ data: "deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ error });
+  }
+};
+
+export const leaveSummary = async (req: Request, res: Response) => {
+  try {
+    const queryValidator = z.object({
+      month: z.number().int().min(1).max(12).optional(),
+      userRef: z.string(),
+    });
+
+    const { error, data } = queryValidator.safeParse(req.query);
+
+    if (error) {
+      res.status(400).json({ error: error.issues });
+      return;
+    }
+
+    const { month = moment().month() + 1, userRef } = data;
+
+    // Get attendance records until the specified month
+    const leaves = await AttendanceModel.find({
+      userRef,
+      date: {
+        $gte: moment().startOf("year").format(attendanceDateFormate),
+        $lte: moment()
+          .month(month - 1)
+          .endOf("month")
+          .format(attendanceDateFormate),
+      },
+      status: { $in: [AttendanceStatus.Absent, AttendanceStatus.HalfDay] },
+    } as Record<string, unknown>);
+
+    const totalLeaves = leaves.reduce((acc, leave) => {
+      if (leave.status === AttendanceStatus.Absent) {
+        return acc + 1;
+      } else if (leave.status === AttendanceStatus.HalfDay) {
+        return acc + 0.5;
+      }
+      return acc;
+    }, 0);
+
+    // Group leaves by month
+    const leavesByMonth: Record<number, number> = {};
+    leaves.forEach((leave) => {
+      const leaveDate = moment(leave.date, attendanceDateFormate);
+      const monthNum = leaveDate.month() + 1; // moment months are 0-indexed
+
+      if (!leavesByMonth[monthNum]) {
+        leavesByMonth[monthNum] = 0;
+      }
+
+      if (leave.status === AttendanceStatus.Absent) {
+        leavesByMonth[monthNum] += 1;
+      } else if (leave.status === AttendanceStatus.HalfDay) {
+        leavesByMonth[monthNum] += 0.5;
+      }
+    });
+
+    // Calculate earned leaves month by month
+    let earnedLeaves = 0;
+    for (let currentMonth = 1; currentMonth <= month; currentMonth++) {
+      // Add 1 paid leave for the month
+      earnedLeaves += 1;
+
+      // Subtract leaves taken in this month
+      const leavesTaken = leavesByMonth[currentMonth] || 0;
+      earnedLeaves -= leavesTaken;
+
+      // Ensure balance doesn't go negative
+      if (earnedLeaves < 0) {
+        earnedLeaves = 0;
+      }
+    }
+
+    res.status(200).json({
+      data: {
+        leaves,
+        totalLeaves,
+        earnedLeaves,
+        month,
+        userRef,
+        leavesByMonth,
+      },
+    });
   } catch (error) {
     res.status(500).json({ error });
   }

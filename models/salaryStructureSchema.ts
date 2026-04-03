@@ -19,12 +19,15 @@ const salaryStructureSchema = new Schema<SalaryStructure>(
     employerPfContribution: { type: Number, default: 0 },
     employerEsiContribution: { type: Number, default: 0 },
     gratuity: { type: Number, default: 0 },
-    bonus: [
-      {
-        label: { type: String, required: true },
-        amount: { type: Number, required: true },
-      },
-    ],
+    bonus: {
+      type: [
+        {
+          label: { type: String, required: true },
+          amount: { type: Number, required: true },
+        },
+      ],
+      default: [],
+    },
   },
   { _id: false },
 );
