@@ -36,7 +36,24 @@ export const REQUIREMENT_STRING_FIELD_HINTS = {
     "Engagement type if stated (W2, C2C, 1099, full-time, etc.). Use the exact field name employementType.",
   jobPortalLink: "URL to the job posting or portal link if present.",
   reqKeywords: "Short skill or keyword summary as a single string (e.g. comma-separated).",
-  jobDescription: "Job description or scope text from the source. If not present, provide a brief summary of the job requirements. and formate in list of items.",
+  jobDescription: `Instructions:
+Please take the following source text and organize it into a clean, Markdown-formatted structure.
+Critical Rule: Do not remove, summarize, or edit any sentences or words from the original text. Your job is solely to apply a professional format to the existing content.
+Required Labels & Structure:
+Job Title: [Full original text]
+Employment Type: [Full original text]
+Job Portal Link: [Full original text]
+Job Description: [Full original text]
+Primary Tech: [Full original text]
+Secondary Tech: [Full original text]
+Primary Tech Stack: [Full original text]
+Other Relevant Details: [Full original text]
+Formatting Guidelines:
+Preserve Content: Include every word from the source under its respective label.
+Bold Labels: Use ## for every section label and those labels present in the original text to make the layout easy to scan.
+Spacing: Add a clear line break between each section for a clean look.
+Missing Data: If a category is not mentioned in the source, simply write N/A.
+`,
   recordOwner: "Recruiter or record owner name if implied.",
   primaryTech: "Primary technology or stack focus.",
   secondaryTech: "Secondary tools or technologies.",
