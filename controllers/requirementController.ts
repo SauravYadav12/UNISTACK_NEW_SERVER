@@ -14,6 +14,46 @@ import {
 import { RequirementModel } from "../models/requirementModel";
 import RequirementLogModel from "../models/requirement.log.model";
 import { ArchiveRequirement } from "../db/archiveInstance";
+import {
+  extractRequirementFromContent,
+  RequirementExtractionValidationError,
+} from "../services/requirementExtractionService";
+
+export const extractRequirementData = async (req: Request, res: Response) => {
+  try {
+    const { content, instruction } = req.body as {
+      content?: unknown;
+      instruction?: unknown;
+    };
+
+    const data = await extractRequirementFromContent({
+      content: typeof content === "string" ? content : "",
+      instruction:
+        instruction === undefined || instruction === null
+          ? undefined
+          : String(instruction),
+    });
+
+    res.status(200).json({
+      status: "success",
+      data,
+    });
+  } catch (error) {
+    if (error instanceof RequirementExtractionValidationError) {
+      res.status(400).json({
+        status: "failed",
+        error: error.message,
+        details: error.details,
+      });
+      return;
+    }
+    console.error("Error extracting requirement:", error);
+    res.status(500).json({
+      status: "failed",
+      error: getErrorMessage(error),
+    });
+  }
+};
 
 export const getAllRrequirements = async (req: Request, res: Response) => {
   try {

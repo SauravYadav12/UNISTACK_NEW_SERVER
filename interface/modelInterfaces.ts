@@ -21,7 +21,7 @@ export interface IUser {
   lastName?: string;
   email: string;
   password: string;
-  role?: UserRole;
+  role?: UserRole[];
   shift?: UserShift;
   workLocation?: WorkLocation;
   gender: string;

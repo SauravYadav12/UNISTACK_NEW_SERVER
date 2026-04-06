@@ -61,6 +61,8 @@ const ENV_VARS = {
     COMPANY_EMAIL : process.env.COMPANY_EMAIL,
 
     FRONTEND_URL : process.env.FRONTEND_URL,
+    CLAUDE_API_KEY : process.env.CLAUDE_API_KEY,
+    CLAUDE_MODEL : process.env.CLAUDE_MODEL,
 }
 
 logMissingEnvVars(ENV_VARS, "Missing environment variables in config.env");

@@ -45,9 +45,9 @@ const UserSchema = new mongoose.Schema<UserDoc>(
       required: true,
     },
     role: {
-      type: String,
+      type: [String],
       enum: Object.values(UserRole),
-      default: UserRole.User,
+      default: [UserRole.User],
     },
     shift: {
       type: String,

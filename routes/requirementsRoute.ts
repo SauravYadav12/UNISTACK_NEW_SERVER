@@ -7,6 +7,7 @@ import {
   createRequirementLog,
   getRequirementLog,
   requirementsCounts,
+  extractRequirementData,
 } from "../controllers/requirementController";
 const requirementRoute = express.Router();
 import passport from "passport";
@@ -21,6 +22,12 @@ requirementRoute.post(
   "/create-requirement",
   passport.authenticate("jwt", { session: false }),
   createRequirement
+);
+
+requirementRoute.post(
+  "/extract-from-content",
+  passport.authenticate("jwt", { session: false }),
+  extractRequirementData
 );
 
 requirementRoute.patch(
