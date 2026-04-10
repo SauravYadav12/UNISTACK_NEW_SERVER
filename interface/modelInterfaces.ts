@@ -10,6 +10,8 @@ export interface ITeam {
   teckStack?: string;
   developerName?: string;
   createdBy?: string;
+  rank?: number;
+  active?: boolean;
   createdAt: string;
   updatedAt: string;
 }

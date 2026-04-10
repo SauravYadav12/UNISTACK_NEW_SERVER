@@ -3,7 +3,6 @@ import passport from "passport";
 import multer from "multer";
 import {
   uploadFile,
-  uploadFileToGcpStorage,
 } from "../controllers/storageController";
 const storageRoute = Router();
 
@@ -14,11 +13,6 @@ storageRoute.post(
   passport.authenticate("jwt", { session: false }),
   uploadFile
 );
-storageRoute.post(
-  "/upload/gcp",
-  upload.single("file"),
-  passport.authenticate("jwt", { session: false }),
-  uploadFileToGcpStorage
-);
+
 
 export { storageRoute };
