@@ -4,7 +4,7 @@ import cors from "cors";
 import passport from "passport";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
-dotenv.config({ path: "./config.env" });
+dotenv.config();
 import { usersRoute } from "./routes/usersRoute";
 import { requirementRoute } from "./routes/requirementsRoute";
 import { interviewRoute } from "./routes/interviewsRoute";

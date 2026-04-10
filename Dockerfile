@@ -11,7 +11,7 @@ COPY . .
 COPY tsconfig.json ./tsconfig.json
 
 # Copy the .env file for environment variables
-COPY config.env ./config.env
+# COPY .env ./.env
 
 # Build the application
 RUN npm run build
@@ -25,7 +25,7 @@ COPY --from=base ./package.json ./package.json
 COPY --from=base /dist /dist
 
 # Copy the .env file into the production container
-COPY config.env ./config.env
+# COPY .env ./.env
 
 # Expose the port that the application listens on
 EXPOSE 8080

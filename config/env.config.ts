@@ -64,7 +64,7 @@ const ENV_VARS = {
     CLAUDE_MODEL : process.env.CLAUDE_MODEL,
 }
 
-logMissingEnvVars(ENV_VARS, "Missing environment variables in config.env");
+logMissingEnvVars(ENV_VARS, "Missing environment variables in .env");
 
 
 export default ENV_VARS;
