@@ -21,6 +21,19 @@ import { accessControlRoute } from "./routes/accessControlRoute";
 import { leaveRoute } from "./routes/leaveRoute";
 import morgan from "morgan";
 import { holidayRoute } from "./routes/holidayRoutes";
+import { salaryRoute } from "./routes/salaryRoute";
+import { holidayNoticeRoute } from "./routes/holidayNoticeRoute";
+import { initHolidayNoticeScheduler } from "./services/holidayNoticeScheduler";
+import { leaveTypeRoute, leaveBalanceRoute } from "./routes/leaveTypeRoute";
+import { projectRoute } from "./routes/projectsRoute";
+import { organizationRoute } from "./routes/organizationRoute";
+import { timesheetRoute } from "./routes/timesheetRoute";
+import { timesheetApprovalRoute } from "./routes/timesheetApprovalRoute";
+import { invoiceRoute } from "./routes/invoiceRoute";
+import { invoiceEmailSettingsRoute } from "./routes/invoiceEmailSettingsRoute";
+import { performanceRoute } from "./routes/performanceRoute";
+import { initInvoiceDueScheduler } from "./services/invoiceDueScheduler";
+import { initLeaveBalanceSystem } from "./services/leaveBalanceScheduler";
 import initPassport from "./config/passport";
 import ENV_VARS from "./config/env.config";
 const app = express();
@@ -51,7 +64,12 @@ mongoose
     useFindAndModify: false,
     useUnifiedTopology: true,
   })
-  .then(() => console.log("Dev DB Connections successfull")).catch((err) => {
+  .then(() => {
+    console.log("Dev DB Connections successfull");
+    initLeaveBalanceSystem();
+    initHolidayNoticeScheduler();
+    initInvoiceDueScheduler();
+  }).catch((err) => {
     console.error("DB connection error:", err);
   });
 
@@ -71,6 +89,17 @@ app.use("/attendance", attendanceRoute);
 app.use("/access-control", accessControlRoute);
 app.use("/leaves", leaveRoute);
 app.use("/holidays", holidayRoute);
+app.use("/salary", salaryRoute);
+app.use("/holiday-notice", holidayNoticeRoute);
+app.use("/leave-types", leaveTypeRoute);
+app.use("/leave-balances", leaveBalanceRoute);
+app.use("/projects", projectRoute);
+app.use("/organizations", organizationRoute);
+app.use("/timesheets", timesheetRoute);
+app.use("/timesheet-approvals", timesheetApprovalRoute);
+app.use("/invoices", invoiceRoute);
+app.use("/invoice-email-settings", invoiceEmailSettingsRoute);
+app.use("/performance", performanceRoute);
 
 //PORT
 const port = ENV_VARS.PORT || 5000;

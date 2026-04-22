@@ -38,6 +38,7 @@ const requirementSchema = new mongoose.Schema<RequirementDoc>(
     assignedToRef: {
       type: mongoose.Schema.Types.ObjectId,
       ref: UserModel,
+      index: true,
     },
     resume: {
       type: String,
@@ -133,6 +134,7 @@ const requirementSchema = new mongoose.Schema<RequirementDoc>(
       required: true,
       type: mongoose.Schema.Types.ObjectId,
       ref: UserModel,
+      index: true,
     },
     reqKeywords: {
       type: String,
@@ -162,6 +164,16 @@ const requirementSchema = new mongoose.Schema<RequirementDoc>(
       type: String,
     },
     duplicateWith: {
+      type: String,
+    },
+    // Multi-assign nesting: a child requirement is spawned for each
+    // marketer assigned to the same parent req. Parents / legacy standalone
+    // rows leave both fields empty.
+    parentReqID: {
+      type: String,
+      index: true,
+    },
+    childSuffix: {
       type: String,
     },
   },

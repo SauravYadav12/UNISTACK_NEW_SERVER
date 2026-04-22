@@ -13,3 +13,17 @@ export const roleGuard =
     }
     next();
   };
+
+export const anyRoleGuard =
+  (...roles: UserRole[]) =>
+  (req: Request, res: Response, next: NextFunction) => {
+    const userRoles = (req.user as UserDoc)?.role || [];
+    if (!roles.some((r) => userRoles.includes(r))) {
+      res.status(403).json({
+        success: false,
+        message: "Forbidden: Insufficient privileges",
+      });
+      return;
+    }
+    next();
+  };

@@ -1,0 +1,80 @@
+import { Schema, model, Document, Types } from "mongoose";
+
+export interface LeaveTypeDoc extends Document {
+  _id: Types.ObjectId;
+  name: string;
+  code: string;
+  description?: string;
+  color?: string;
+  paid: boolean;
+  defaultAllocationPerYear: number;
+  // Per-month accrual cap. Employees can avail up to `monthlyQuota * monthNum`
+  // cumulatively by the end of the given month, capped at
+  // `defaultAllocationPerYear`. Null/undefined means no monthly cap (UL, ML).
+  monthlyQuota?: number | null;
+  isUnpaidBucket: boolean;
+  active: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// "Paid Leave" -> "PL", "Casual Leave" -> "CL", "Leave Without Pay" -> "LWP"
+export function suggestLeaveCode(name: string): string {
+  const parts = name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return "LV";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return parts.map((p) => p[0] || "").join("").toUpperCase();
+}
+
+const leaveTypeSchema = new Schema<LeaveTypeDoc>(
+  {
+    name: { type: String, required: true, trim: true, unique: true },
+    code: { type: String, required: true, trim: true, uppercase: true, unique: true },
+    description: { type: String, default: "" },
+    color: { type: String, default: "" },
+    paid: { type: Boolean, default: true },
+    defaultAllocationPerYear: { type: Number, default: 0, min: 0 },
+    monthlyQuota: { type: Number, default: null, min: 0 },
+    isUnpaidBucket: { type: Boolean, default: false },
+    active: { type: Boolean, default: true },
+  },
+  { timestamps: true },
+);
+
+// Only one type may be marked as the unpaid bucket.
+leaveTypeSchema.index(
+  { isUnpaidBucket: 1 },
+  { unique: true, partialFilterExpression: { isUnpaidBucket: true } },
+);
+
+leaveTypeSchema.pre("validate", function (next) {
+  if (!this.code && this.name) {
+    this.code = suggestLeaveCode(this.name);
+  }
+  if (this.code) this.code = this.code.toUpperCase();
+  next();
+});
+
+export const LeaveTypeModel = model<LeaveTypeDoc>("LeaveType", leaveTypeSchema);
+
+// Seeded once on server start if no types exist.
+export const DEFAULT_LEAVE_TYPES: Array<Partial<LeaveTypeDoc>> = [
+  // Monthly-capped: 1.5 days/month accrual, carried forward within the year.
+  { name: "Paid Leave", code: "PL", paid: true, defaultAllocationPerYear: 10, monthlyQuota: 1.5, color: "#EC4599" },
+  { name: "Casual Leave", code: "CL", paid: true, defaultAllocationPerYear: 0, monthlyQuota: 1.5, color: "#37B7EA" },
+  { name: "Sick Leave", code: "SL", paid: true, defaultAllocationPerYear: 0, monthlyQuota: 1.5, color: "#F59E0B" },
+  // ML has no monthly cap per product decision — full annual bucket available.
+  { name: "Medical Leave", code: "ML", paid: true, defaultAllocationPerYear: 10, monthlyQuota: null, color: "#10B981" },
+  // UL is uncapped and always visible.
+  { name: "Unpaid Leave", code: "UL", paid: false, defaultAllocationPerYear: 0, monthlyQuota: null, isUnpaidBucket: true, color: "#5E7687" },
+];
+
+export async function seedDefaultLeaveTypes(): Promise<number> {
+  const count = await LeaveTypeModel.estimatedDocumentCount();
+  if (count > 0) return 0;
+  const inserted = await LeaveTypeModel.insertMany(DEFAULT_LEAVE_TYPES);
+  return inserted.length;
+}

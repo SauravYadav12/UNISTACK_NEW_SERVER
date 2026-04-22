@@ -8,10 +8,11 @@ import {
   UserProfile,
 } from "../interface/userProfile";
 
-export interface UserProfileDoc extends Omit<UserProfile, '_id' | 'user' | 'dob'>, Document {
+export interface UserProfileDoc extends Omit<UserProfile, '_id' | 'user' | 'dob' | 'dateOfJoining'>, Document {
   _id: Schema.Types.ObjectId;
   user: Schema.Types.ObjectId;
   dob?: Date;
+  dateOfJoining?: Date;
 }
 const urlValidator = {
   validator: (v: string) => !v || /^https:\/\/.+/.test(v),
@@ -113,6 +114,8 @@ const userProfileSchema = new Schema<UserProfileDoc>(
     panCopy: { type: String, validate: urlValidator, default: "" },
     aadharCopy: { type: String, validate: urlValidator, default: "" },
     resume: { type: String, validate: urlValidator, default: "" },
+    designation: { type: String, default: "" },
+    dateOfJoining: { type: Date },
   },
   { timestamps: true }
 );

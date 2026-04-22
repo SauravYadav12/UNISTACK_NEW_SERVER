@@ -8,6 +8,9 @@ import {
   getRequirementLog,
   requirementsCounts,
   extractRequirementData,
+  assignMarketers,
+  unassignMarketer,
+  searchRequirementByReqID,
 } from "../controllers/requirementController";
 const requirementRoute = express.Router();
 import passport from "passport";
@@ -47,6 +50,25 @@ requirementRoute.get(
   passport.authenticate('jwt', { session: false }),
   requirementsCounts
 )
+
+// ── Multi-assign ────────────────────────────────────────────────────────
+requirementRoute.post(
+  '/:reqID/assignments',
+  passport.authenticate('jwt', { session: false }),
+  assignMarketers
+);
+
+requirementRoute.delete(
+  '/assignments/:id',
+  passport.authenticate('jwt', { session: false }),
+  unassignMarketer
+);
+
+requirementRoute.get(
+  '/search/:reqID',
+  passport.authenticate('jwt', { session: false }),
+  searchRequirementByReqID
+);
 
 // -------------------logs-----------------
 

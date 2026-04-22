@@ -1,7 +1,8 @@
 import { Request, Response } from "express";
 import { paginationInstance } from "../utils/pagination";
-import { LeaveModel, LeaveStatus } from "../models/leaveModel";
+import { LeaveModel, LeaveStatus, LeavePaymentCategory } from "../models/leaveModel";
 import { ILeave, IUser, UserDoc } from "../interface";
+import { UserRole } from "../enums/UserEnum";
 import { getLeaveRequestTemplate, getLeaveStatusTemplate } from "../templates";
 import { sendMail } from "../utils/mailTransporter";
 import { UserModel } from "../models/userModel";
@@ -10,11 +11,48 @@ import moment from "moment";
 import { AttendanceStatus } from "../models/attendance";
 import { handleMarkAttendance } from "./attendanceController";
 import ENV_VARS from "../config/env.config";
+import {
+  getBalance,
+  incrementUsed,
+  decrementUsed,
+  computeLeaveSplit,
+} from "../services/leaveBalanceService";
+import {
+  getLeaveTypeById,
+  getUnpaidBucketType,
+} from "./leaveTypeController";
+import { Types } from "mongoose";
+
+function requestedDays(leave: { startDate: string; endDate: string; isHalfDay?: boolean }): number {
+  const start = moment(leave.startDate, "YYYY/MM/DD");
+  const end = moment(leave.endDate, "YYYY/MM/DD");
+  const inclusive = end.diff(start, "days") + 1;
+  const days = Math.max(inclusive, 1);
+  return leave.isHalfDay ? days * 0.5 : days;
+}
 
 function getEmailSubject(user: IUser | UserDoc) {
   const fullname =
     ((user.firstName || "") + " " + (user.lastName || "")).trim() || user.email;
   return "Leave Request from " + fullname;
+}
+
+// Default recipient list for leave-request notifications. Env var
+// LEAVE_NOTIFY_EMAILS (comma-separated) overrides — and COMPANY_EMAIL is
+// appended if set and not already in the list, so HR keeps a copy.
+const DEFAULT_LEAVE_NOTIFY_EMAILS = [
+  "info@unicodez.com",
+  "hr@unicodez.com",
+  "sam@unicodez.com",
+];
+
+function leaveNotifyRecipients(): string[] {
+  const base = ENV_VARS.LEAVE_NOTIFY_EMAILS?.length
+    ? ENV_VARS.LEAVE_NOTIFY_EMAILS
+    : DEFAULT_LEAVE_NOTIFY_EMAILS;
+  const set = new Set(base);
+  if (ENV_VARS.COMPANY_EMAIL) set.add(ENV_VARS.COMPANY_EMAIL);
+  return [...set];
 }
 
 export const getLeaves = async (req: Request, res: Response) => {
@@ -48,9 +86,45 @@ export const getLeaveById = async (req: Request, res: Response) => {
   }
 };
 
+function validateDateOrder(body: Record<string, unknown>): string | null {
+  const s = body.startDate as string | undefined;
+  const e = body.endDate as string | undefined;
+  if (!s || !e) return null;
+  if (moment(e, "YYYY/MM/DD").isBefore(moment(s, "YYYY/MM/DD"))) {
+    return "End date must be on or after start date";
+  }
+  return null;
+}
+
 export const createLeave = async (req: Request, res: Response) => {
   try {
     const user = req.user as UserDoc;
+    const dateErr = validateDateOrder(req.body);
+    if (dateErr) {
+      res.status(400).json({ error: dateErr });
+      return;
+    }
+
+    // If the caller didn't precompute a split (legacy clients), derive one
+    // from the monthly quota now so approval doesn't need to re-query.
+    if (!Array.isArray(req.body.splitBreakdown) && req.body.leaveType) {
+      try {
+        const days = requestedDays(req.body);
+        const monthNum = moment(req.body.startDate, "YYYY/MM/DD").month() + 1;
+        const yearNum = moment(req.body.startDate, "YYYY/MM/DD").year();
+        const { split } = await computeLeaveSplit({
+          userId: user._id.toString(),
+          leaveTypeId: req.body.leaveType,
+          year: yearNum,
+          month: monthNum,
+          requestedDays: days,
+        });
+        req.body.splitBreakdown = split;
+      } catch {
+        // Non-fatal — leave without a split falls back to full-type deduction.
+      }
+    }
+
     const newLeave = new LeaveModel({
       ...req.body,
       userRef: user._id.toString(),
@@ -58,9 +132,11 @@ export const createLeave = async (req: Request, res: Response) => {
 
     const data = await newLeave.save();
     const emailHtml = await getLeaveRequestTemplate(data.toObject<ILeave>());
+    const recipients = leaveNotifyRecipients();
     const mailOptions = {
-      from: user.email,
-      to: ENV_VARS.COMPANY_EMAIL,
+      from: ENV_VARS.COMPANY_EMAIL || user.email,
+      to: recipients.join(", "),
+      replyTo: user.email,
       subject: getEmailSubject(user),
       html: emailHtml,
     };
@@ -75,17 +151,134 @@ export const createLeave = async (req: Request, res: Response) => {
   }
 };
 
+// Fields the owner of a Pending leave is allowed to edit. Anything else in
+// the body is stripped before the update so a malicious client can't slip in
+// status / respondBy / paymentCategory.
+const OWNER_EDITABLE_FIELDS = new Set([
+  "startDate",
+  "endDate",
+  "reason",
+  "type",
+  "leaveType",
+  "isHalfDay",
+  "halfDayType",
+  "attachments",
+]);
+
 export const updateLeave = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const userId = (req.user as UserDoc)._id.toString();
+    const me = req.user as UserDoc;
+    const userId = me._id.toString();
+    const myRoles = me.role || [];
+    const isAdmin = myRoles.some(
+      (r) =>
+        r === UserRole.SuperAdmin ||
+        r === UserRole.Admin ||
+        r === UserRole.Hr,
+    );
+
     const existingLeave = (await LeaveModel.findById(id)
       .lean()
       .exec()) as ILeave | null;
 
+    if (!existingLeave) {
+      res.status(404).json({ error: "Leave not found" });
+      return;
+    }
+
+    const isOwner = existingLeave.userRef?.toString() === userId;
+    const wantsDecision =
+      "status" in req.body && req.body.status !== existingLeave.status;
+
+    if (wantsDecision) {
+      // Approve / reject / reopen — admin only.
+      if (!isAdmin) {
+        res.status(403).json({ error: "Only HR / Admin can change leave status" });
+        return;
+      }
+    } else {
+      // Non-decision edit — owner of a Pending leave, or any admin.
+      if (!isOwner && !isAdmin) {
+        res.status(403).json({ error: "You can only edit your own leave" });
+        return;
+      }
+      if (existingLeave.status !== LeaveStatus.Pending) {
+        res.status(400).json({
+          error: `Cannot edit a leave that has already been ${existingLeave.status?.toLowerCase()}`,
+        });
+        return;
+      }
+      // Owners must stay within the safe-edit fields. Admins may also edit
+      // freely here, but we still drop status-only bookkeeping fields.
+      if (!isAdmin) {
+        for (const key of Object.keys(req.body)) {
+          if (!OWNER_EDITABLE_FIELDS.has(key)) delete req.body[key];
+        }
+      } else {
+        delete req.body.status;
+        delete req.body.respondBy;
+        delete req.body.respondedAt;
+      }
+    }
+
+    // If either date is being updated, validate the resulting range against
+    // whichever side wasn't changed.
+    if ("startDate" in req.body || "endDate" in req.body) {
+      const merged = {
+        startDate: req.body.startDate ?? existingLeave.startDate,
+        endDate: req.body.endDate ?? existingLeave.endDate,
+      };
+      const dateErr = validateDateOrder(merged);
+      if (dateErr) {
+        res.status(400).json({ error: dateErr });
+        return;
+      }
+    }
+
+    // If dates or leave-type changed on a Pending leave, recompute the split
+    // so the quota math stays accurate (unless the caller explicitly sent
+    // their own splitBreakdown).
+    const mutatedPayloadFields =
+      "startDate" in req.body ||
+      "endDate" in req.body ||
+      "leaveType" in req.body ||
+      "isHalfDay" in req.body;
+    if (
+      !wantsDecision &&
+      mutatedPayloadFields &&
+      !Array.isArray(req.body.splitBreakdown) &&
+      existingLeave.status === LeaveStatus.Pending
+    ) {
+      const merged = {
+        startDate: req.body.startDate ?? existingLeave.startDate,
+        endDate: req.body.endDate ?? existingLeave.endDate,
+        isHalfDay: req.body.isHalfDay ?? existingLeave.isHalfDay,
+        leaveType: req.body.leaveType ?? existingLeave.leaveType,
+      };
+      if (merged.leaveType) {
+        try {
+          const days = requestedDays(merged);
+          const monthNum = moment(merged.startDate, "YYYY/MM/DD").month() + 1;
+          const yearNum = moment(merged.startDate, "YYYY/MM/DD").year();
+          const { split } = await computeLeaveSplit({
+            userId: existingLeave.userRef,
+            leaveTypeId: merged.leaveType as unknown as string,
+            year: yearNum,
+            month: monthNum,
+            requestedDays: days,
+          });
+          req.body.splitBreakdown = split;
+        } catch {
+          // Leave the old breakdown in place if recompute fails.
+        }
+      }
+    }
+
     if (
       existingLeave?.status === LeaveStatus.Pending &&
-      req.body.status !== LeaveStatus.Pending
+      req.body.status !== LeaveStatus.Pending &&
+      req.body.status !== undefined
     ) {
       req.body.respondedAt = new Date();
       req.body.respondBy = userId;
@@ -135,6 +328,7 @@ export const updateLeave = async (req: Request, res: Response) => {
       await updatedLeave.save();
 
       if (updatedLeave.status === LeaveStatus.Approved) {
+        await applyBalanceEffects(updatedLeave);
         markAttendanceForLeave(updatedLeave.toObject<ILeave>());
       }
     }
@@ -144,6 +338,105 @@ export const updateLeave = async (req: Request, res: Response) => {
     res.status(500).json({ error: error });
   }
 };
+
+// On approval: deduct each split-breakdown entry from its respective balance.
+// If no split was recorded (legacy leave or empty), fall back to the annual
+// cap logic: deduct fully if balance allows, else reclassify to UL.
+async function applyBalanceEffects(
+  leave: Awaited<ReturnType<typeof LeaveModel.findById>>,
+) {
+  if (!leave || !leave.leaveType) return;
+  const year = moment(leave.startDate, "YYYY/MM/DD").year();
+  const userId = leave.userRef as unknown as Types.ObjectId;
+
+  const split = leave.splitBreakdown?.filter((s) => s.days > 0) || [];
+
+  // Preferred path: honor the split recorded at apply-time.
+  if (split.length) {
+    const unpaidType = await getUnpaidBucketType();
+    for (const item of split) {
+      await incrementUsed({
+        userId,
+        leaveTypeId: item.leaveType,
+        year,
+        days: item.days,
+      });
+    }
+    const hasUnpaidPortion = unpaidType
+      ? split.some((s) => s.leaveType.toString() === unpaidType._id.toString())
+      : false;
+    const reqType = await getLeaveTypeById(leave.leaveType);
+    if (hasUnpaidPortion) {
+      leave.paymentCategory = LeavePaymentCategory.Unpaid;
+    } else if (reqType) {
+      leave.paymentCategory = reqType.paid
+        ? LeavePaymentCategory.Paid
+        : LeavePaymentCategory.Unpaid;
+    }
+    await leave.save();
+    return;
+  }
+
+  // Fallback — legacy path for leaves created before splits existed.
+  const days = requestedDays({
+    startDate: leave.startDate,
+    endDate: leave.endDate,
+    isHalfDay: leave.isHalfDay,
+  });
+  const reqType = await getLeaveTypeById(leave.leaveType);
+  if (!reqType) return;
+
+  if (reqType.isUnpaidBucket) {
+    await incrementUsed({ userId, leaveTypeId: reqType._id, year, days });
+    leave.paymentCategory = LeavePaymentCategory.Unpaid;
+    await leave.save();
+    return;
+  }
+
+  const balance = await getBalance(userId, year, reqType._id);
+  const remaining = (balance?.allocated || 0) - (balance?.used || 0);
+
+  if (days <= remaining) {
+    await incrementUsed({ userId, leaveTypeId: reqType._id, year, days });
+    leave.paymentCategory = reqType.paid
+      ? LeavePaymentCategory.Paid
+      : LeavePaymentCategory.Unpaid;
+    await leave.save();
+    return;
+  }
+
+  const unpaidType = await getUnpaidBucketType();
+  if (!unpaidType) {
+    leave.paymentCategory = LeavePaymentCategory.Unpaid;
+    await leave.save();
+    return;
+  }
+  leave.leaveType = unpaidType._id;
+  leave.paymentCategory = LeavePaymentCategory.Unpaid;
+  await leave.save();
+  await incrementUsed({ userId, leaveTypeId: unpaidType._id, year, days });
+}
+
+// Reverse a previously-applied deduction (e.g. if HR rolls an Approved leave
+// back to Pending or deletes it). Not currently wired to update/delete paths
+// but exposed so we can add it cleanly.
+export async function reverseBalanceEffects(
+  leave: Pick<ILeave, "leaveType" | "startDate" | "endDate" | "isHalfDay" | "userRef" | "status">,
+) {
+  if (!leave.leaveType || leave.status !== LeaveStatus.Approved) return;
+  const days = requestedDays({
+    startDate: leave.startDate,
+    endDate: leave.endDate,
+    isHalfDay: leave.isHalfDay,
+  });
+  const year = moment(leave.startDate, "YYYY/MM/DD").year();
+  await decrementUsed({
+    userId: leave.userRef,
+    leaveTypeId: leave.leaveType,
+    year,
+    days,
+  });
+}
 
 function markAttendanceForLeave(leave: ILeave) {
   if (leave.status !== LeaveStatus.Approved) return;
@@ -155,7 +448,12 @@ function markAttendanceForLeave(leave: ILeave) {
     const current = startDate.clone();
 
     while (current.isSameOrBefore(endDate)) {
-      dates.push(current.format("YYYY/MM/DD"));
+      const dow = current.day();
+      // Skip Sat (6) / Sun (0) — weekends are non-working days, no attendance
+      // row needed even if the leave span includes them.
+      if (dow !== 0 && dow !== 6) {
+        dates.push(current.format("YYYY/MM/DD"));
+      }
       current.add(1, "days");
     }
 

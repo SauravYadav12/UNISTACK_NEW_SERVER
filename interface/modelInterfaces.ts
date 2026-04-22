@@ -107,6 +107,8 @@ export interface IRequirement {
   primaryTechStack?: string;
   isDuplicate?: string;
   duplicateWith?: string;
+  parentReqID?: string;
+  childSuffix?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -169,6 +171,9 @@ export interface ILeave {
   halfDayType?: 'First Half' | 'Second Half';
   attachments?: string[];
   emailRefIds?: string[];
+  paymentCategory?: 'Paid' | 'Unpaid' | 'Medical';
+  leaveType?: string;
+  splitBreakdown?: Array<{ leaveType: string; days: number }>;
   createdAt: string;
   updatedAt: string;
 }
@@ -182,6 +187,11 @@ export interface IHoliday {
   toDate: string;
   isHalfDay?: boolean;
   halfDayType?: 'First Half' | 'Second Half';
+  country?: 'IN' | 'US' | 'ALL';
+  source?: 'manual' | 'system';
+  externalId?: string;
+  noticeSentAt?: string;
+  noticeSentTo?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -316,6 +326,264 @@ export interface ISalesLeadComment {
   commentBy: string;
   comment: string;
   date?: string;
+}
+
+// Organization Interface
+export interface IOrganization {
+  _id: string;
+  orgId: string;
+  name: string;
+  shortCode: string;
+  email?: string;
+  phone?: string;
+  website?: string;
+  address?: string;
+  einNumber?: string;
+  /** Public image URL (PNG/JPG). When set, invoice PDFs render the logo in
+   *  the header instead of the plain-text org name. */
+  logoUrl?: string;
+  active: boolean;
+  createdBy?: string;
+  updatedBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Project + Billing shared types
+export type PaymentTermsPreset = 'Net 15' | 'Net 30' | 'Net 45' | 'Net 60' | 'Custom';
+export type InvoiceStatus = 'Draft' | 'Raised' | 'Paid' | 'Due';
+export type TimesheetApprovalStatus = 'Pending' | 'Requested' | 'Approved' | 'Rejected';
+export type DocStepStatus = 'Pending' | 'Done';
+
+export interface IDocStep {
+  status: DocStepStatus;
+  completedOn?: string;
+  notes?: string;
+  attachmentUrl?: string;
+}
+
+// Project Interface
+export type ProjectStatus = 'Active' | 'On Hold' | 'Ended' | 'Terminated';
+export type ContractScope = 'client' | 'vendor' | 'primeVendor' | 'other';
+
+export interface IProjectAdditionalDetail {
+  _id?: string;
+  key: string;
+  value: string;
+  addedBy?: string;
+  addedAt?: string;
+}
+
+export interface IProjectContract {
+  _id?: string;
+  scope: ContractScope;
+  label?: string;
+  url: string;
+  fileName: string;
+  sizeBytes?: number;
+  uploadedBy?: string;
+  uploadedAt?: string;
+}
+
+export interface IProject {
+  _id: string;
+  projectId: string;
+  reqID: string;
+  requirementRef?: string;
+
+  // Organization (required going forward; optional on the TS type for legacy rows)
+  organizationRef?: string;
+  organizationName?: string;
+  organizationShortCode?: string;
+  organizationEIN?: string;
+  organizationLogoUrl?: string;
+  organizationAddress?: string;
+  organizationEmail?: string;
+  organizationWebsite?: string;
+
+  // Seeded snapshot from Requirement (frozen at creation)
+  jobTitle?: string;
+  consultant?: string;
+  clientCompany?: string;
+  clientWebsite?: string;
+  clientAddress?: string;
+  clientPerson?: string;
+  clientPhone?: string;
+  clientEmail?: string;
+  primeVendorCompany?: string;
+  primeVendorWebsite?: string;
+  primeVendorName?: string;
+  primeVendorPhone?: string;
+  primeVendorEmail?: string;
+  vendorCompany?: string;
+  vendorWebsite?: string;
+  vendorPersonName?: string;
+  vendorPhone?: string;
+  vendorEmail?: string;
+  rate?: unknown[];
+  taxType?: unknown[];
+  duration?: unknown[];
+
+  // Project-owned fields
+  status: ProjectStatus;
+  startDate?: string;
+  endDate?: string;
+  notes?: string;
+
+  // Billing metadata
+  billingUnit?: 'hourly';
+  paymentTerms?: { preset: PaymentTermsPreset; days: number };
+  taxPercent?: number;
+  invoiceRecipients?: {
+    client: boolean;
+    vendor: boolean;
+    primeVendor: boolean;
+    customEmails: string[];
+  };
+
+  documentation?: {
+    bgc: IDocStep;
+    contractSigned: IDocStep;
+    paymentTermsAccepted: IDocStep;
+    onboarding: IDocStep;
+    extraNotes?: string;
+  };
+
+  additionalDetails?: IProjectAdditionalDetail[];
+  contracts?: IProjectContract[];
+
+  createdBy?: string;
+  updatedBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Timesheet + Approval + Invoice interfaces
+export interface ITimesheetEntry {
+  date: string;       // YYYY-MM-DD
+  hours: number;
+}
+
+export interface ITimesheetScreenshot {
+  _id?: string;
+  /** ISO start/end of the week the screenshot covers, keeps uploads organised. */
+  weekStart: string;  // YYYY-MM-DD
+  weekEnd: string;    // YYYY-MM-DD
+  /** Human label admins can eyeball: e.g. "Week of Apr 1 – Apr 7". */
+  weekLabel?: string;
+  url: string;
+  fileName: string;
+  sizeBytes?: number;
+  uploadedBy?: string;
+  uploadedAt?: string;
+}
+
+export interface ITimesheet {
+  _id: string;
+  projectRef: string;
+  projectId: string;
+  organizationRef: string;
+  periodMonth: string; // YYYY-MM
+  entries: ITimesheetEntry[]; // one entry per day of month, length 28-31
+  totalHours: number;
+  /** True once every day of the month has a non-null hours value recorded. */
+  allFilled: boolean;
+  /** True when the admin has explicitly marked the month "complete". This
+   *  gates "Submit for approval" — you can't submit until you've confirmed
+   *  the month is finalised. Resets to false whenever entries change. */
+  completed: boolean;
+  completedAt?: string;
+  completedBy?: string;
+  /** Approved-timesheet screenshots vendors attach to the invoice email. */
+  screenshots?: ITimesheetScreenshot[];
+  filledBy?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ITimesheetApproval {
+  _id: string;
+  projectRef: string;
+  projectId: string;
+  organizationRef: string;
+  periodMonth: string;
+  status: TimesheetApprovalStatus;
+  timesheetIds: string[];
+  totalHoursAtSubmission?: number;
+  requestedAt?: string;
+  requestedBy?: string;
+  approvedAt?: string;
+  approvedBy?: string;
+  rejectedAt?: string;
+  rejectedBy?: string;
+  rejectionReason?: string;
+  generatedInvoiceRef?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface IInvoiceLineItem {
+  _id?: string;
+  description: string;
+  hours?: number;
+  rate?: number;
+  amount: number;
+}
+
+export interface IInvoice {
+  _id: string;
+  invoiceNumber: string;
+  projectRef: string;
+  projectId: string;
+  organizationRef: string;
+  organizationName: string;
+  periodMonth: string;
+
+  lineItems: IInvoiceLineItem[];
+  subtotal: number;
+  taxLabel?: string;
+  taxPercent: number;
+  taxAmount: number;
+  total: number;
+  currency: string;
+
+  status: InvoiceStatus;
+  issueDate?: string;
+  dueDate?: string;
+  paidOn?: string;
+  paymentReference?: string;
+  paymentNotes?: string;
+
+  emailedTo: string[];
+  emailedAt?: string;
+  dueNotifiedAt?: string;
+
+  pdfUrl?: string;
+  notes?: string;
+  approvalRef: string;
+
+  createdBy?: string;
+  updatedBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface IEmailTemplateBlock {
+  subject: string;
+  heading: string;
+  bodyLead: string;
+  bodyDetails: string;
+  signOff: string;
+}
+
+export interface IInvoiceEmailSettings {
+  _id: string;
+  timesheetApprovalRequest: IEmailTemplateBlock;
+  raised: IEmailTemplateBlock;
+  due: IEmailTemplateBlock;
+  updatedAt: string;
+  updatedBy?: string;
 }
 
 // Re-export existing interfaces for convenience
