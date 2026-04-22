@@ -58,6 +58,9 @@ const ENV_VARS = {
 
 
     COMPANY_EMAIL : process.env.COMPANY_EMAIL,
+    LEAVE_NOTIFY_EMAILS : process.env.LEAVE_NOTIFY_EMAILS?.split(",").map(e => e.trim()).filter(Boolean),
+    ACCOUNTS_NOTIFY_EMAILS : process.env.ACCOUNTS_NOTIFY_EMAILS?.split(",").map(e => e.trim()).filter(Boolean),
+    INVOICE_DUE_CHECK_HOUR : process.env.INVOICE_DUE_CHECK_HOUR ? Number(process.env.INVOICE_DUE_CHECK_HOUR) : 9,
 
     FRONTEND_URL : process.env.FRONTEND_URL,
     CLAUDE_API_KEY : process.env.CLAUDE_API_KEY,

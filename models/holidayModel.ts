@@ -2,11 +2,23 @@ import mongoose, { Document, FilterQuery } from "mongoose";
 import { dateValidator, HalfDayType } from "./leaveModel";
 import { IHoliday } from "../interface/modelInterfaces";
 
+export enum HolidayCountry {
+  IN = "IN",
+  US = "US",
+  ALL = "ALL",
+}
+
+export enum HolidaySource {
+  Manual = "manual",
+  System = "system",
+}
+
 export interface HolidayDoc
-  extends Omit<IHoliday, "_id" | "createdAt" | "updatedAt">, Document {
+  extends Omit<IHoliday, "_id" | "createdAt" | "updatedAt" | "noticeSentAt">, Document {
   _id: mongoose.Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
+  noticeSentAt?: Date;
 }
 
 const holiday = new mongoose.Schema<HolidayDoc>(
@@ -37,11 +49,29 @@ const holiday = new mongoose.Schema<HolidayDoc>(
         return false;
       },
     },
+    country: {
+      type: String,
+      enum: Object.values(HolidayCountry),
+      default: HolidayCountry.ALL,
+    },
+    source: {
+      type: String,
+      enum: Object.values(HolidaySource),
+      default: HolidaySource.Manual,
+    },
+    externalId: { type: String },
+    // Set by the holiday-notice scheduler so we never double-send the
+    // heads-up email for the same holiday.
+    noticeSentAt: { type: Date },
+    noticeSentTo: { type: Number, default: 0 },
   },
   {
     timestamps: true,
   },
 );
+
+holiday.index({ country: 1, fromDate: 1 });
+holiday.index({ externalId: 1, country: 1 }, { unique: true, sparse: true });
 
 export const HolidayModel = mongoose.model<HolidayDoc>("Holiday", holiday);
 

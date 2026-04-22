@@ -1,6 +1,17 @@
 import { Request, Response } from "express";
+import moment from "moment";
 import { AttendanceModel, AttendanceStatus } from "../models/attendance";
 import { handleAttendanceDateQueryParams } from "../utils/utils";
+
+// Sat (6) / Sun (0) are non-working days company-wide. No attendance rows
+// should ever be created for those dates, from any caller (employee
+// self-service, admin dashboard, or the leave-approval auto-mark).
+function isWeekendDate(date: string): boolean {
+  const m = moment(date, "YYYY/MM/DD");
+  if (!m.isValid()) return false;
+  const dow = m.day();
+  return dow === 0 || dow === 6;
+}
 
 export const getAttendanceList = async (req: Request, res: Response) => {
   try {
@@ -31,6 +42,9 @@ export const handleMarkAttendance = async (body: {
   const { userRef, date } = body;
   if (!date) {
     throw new Error(`date is required`);
+  }
+  if (isWeekendDate(date)) {
+    throw new Error(`${date} is a weekend — attendance is not tracked on Sat/Sun`);
   }
   const q = {
     userRef,

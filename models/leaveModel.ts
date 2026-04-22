@@ -1,13 +1,24 @@
-import { Schema, model, Document } from "mongoose";
+import { Schema, model, Document, Types } from "mongoose";
 import { UserModel } from "./userModel";
 import { isFormateValid, attendanceDateFormate } from "../utils/utils";
 import { ILeave } from "../interface/modelInterfaces";
+import { LeaveTypeModel } from "./leaveTypeModel";
 
-export interface LeaveDoc extends Omit<ILeave, '_id' | 'userRef' | 'respondBy' | 'respondedAt' | 'createdAt' | 'updatedAt'>, Document {
+export interface LeaveSplitItem {
+  leaveType: Types.ObjectId;
+  days: number;
+}
+
+export interface LeaveDoc extends Omit<ILeave, '_id' | 'userRef' | 'respondBy' | 'respondedAt' | 'createdAt' | 'updatedAt' | 'leaveType' | 'splitBreakdown'>, Document {
   _id: Schema.Types.ObjectId;
   userRef: Schema.Types.ObjectId;
   respondBy?: Schema.Types.ObjectId;
   respondedAt?: Date;
+  leaveType?: Types.ObjectId;
+  // When a request exceeds the monthly quota for the chosen type, the
+  // overflow is stored here so the admin approval deducts correctly from
+  // each bucket. Empty/unset means "deduct everything from leaveType".
+  splitBreakdown?: LeaveSplitItem[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -28,6 +39,12 @@ export  enum LeaveStatus {
 export enum HalfDayType {
   FirstHalf = "First Half",
   SecondHalf = "Second Half",
+}
+
+export enum LeavePaymentCategory {
+  Paid = "Paid",
+  Unpaid = "Unpaid",
+  Medical = "Medical",
 }
 
 export const dateValidator = {
@@ -97,6 +114,21 @@ const leaveSchema = new Schema<LeaveDoc>(
       },
     },
     attachments: [String],
+    paymentCategory: {
+      type: String,
+      enum: Object.values(LeavePaymentCategory),
+    },
+    leaveType: {
+      type: Schema.Types.ObjectId,
+      ref: LeaveTypeModel,
+    },
+    splitBreakdown: [
+      {
+        _id: false,
+        leaveType: { type: Schema.Types.ObjectId, ref: LeaveTypeModel, required: true },
+        days: { type: Number, required: true, min: 0 },
+      },
+    ],
   },
   { timestamps: true }
 );

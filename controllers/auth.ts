@@ -17,6 +17,7 @@ import {
 } from "../utils/mailTransporter";
 import { Request, Response } from "express";
 import ENV_VARS from "../config/env.config";
+import { UserRole } from "../enums/UserEnum";
 
 export function extractIUser(user: UserDoc) {
   return {
@@ -120,9 +121,26 @@ export const login = async (req: Request, res: Response) => {
           );
           const iUser = extractIUser(user);
 
-          res.status(200).json({
-            user: iUser,
-          });
+          const skipOtp =
+            Array.isArray(user.role) &&
+            (user.role.includes(UserRole.SuperAdmin) ||
+              user.role.includes(UserRole.Admin));
+
+          if (skipOtp) {
+            const token = jwt.sign(
+              { user: iUser },
+              ENV_VARS.JWT_SECRET_KEY || "unistack",
+              { expiresIn: "10h" },
+            );
+            res.status(200).json({
+              user: iUser,
+              token: "JWT " + token,
+            });
+          } else {
+            res.status(200).json({
+              user: iUser,
+            });
+          }
         } else {
           res.status(400).json({
             message: "User is not active!",

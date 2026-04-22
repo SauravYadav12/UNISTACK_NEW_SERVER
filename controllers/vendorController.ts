@@ -6,6 +6,7 @@ import {
   handleSearchString,
   searchableFields,
 } from "../utils/searchStringOperation";
+import { syncReqStatusFromInterview } from "../utils/syncRequirementStatus";
 
 export const getAllInterviews = async (req: Request, res: Response) => {
   try {
@@ -38,6 +39,12 @@ export const createInterview = async (req: Request, res: Response) => {
   try {
     req.body.testID = await sequenceId(VendorModel, "testID", "TEST");
     const interview = await VendorModel.create(req.body);
+    await syncReqStatusFromInterview({
+      reqID: interview.reqID,
+      interviewStatus: interview.interviewStatus,
+      intResult: interview.intResult,
+      updatedBy: interview.updatedBy,
+    });
     res.status(200).json({
       status: "success",
       data: interview,
@@ -63,6 +70,12 @@ export const updateInterview = async (req: Request, res: Response) => {
       });
       return;
     }
+    await syncReqStatusFromInterview({
+      reqID: data.reqID,
+      interviewStatus: data.interviewStatus,
+      intResult: data.intResult,
+      updatedBy: data.updatedBy,
+    });
     res.status(200).json({
       status: "success",
       data: data,

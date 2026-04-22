@@ -11,6 +11,8 @@ export interface UserProfile extends MyDocuments {
   bankDetails: BankDetails;
   communicationAddress: CommunicationAddress;
   permanentAddress: PermanentAddress;
+  designation?: string;
+  dateOfJoining?: string;
 }
 
 export interface MyDocuments {

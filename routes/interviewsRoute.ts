@@ -6,12 +6,19 @@ import {
   createInterview,
   updateInterview,
   deleteInterview,
+  getInterviewsForParent,
 } from "../controllers/interviewController";
 
 interviewRoute.get(
   "/get-interviews",
   passport.authenticate("jwt", { session: false }),
   getAllInterviews
+);
+
+interviewRoute.get(
+  "/by-parent/:reqID",
+  passport.authenticate("jwt", { session: false }),
+  getInterviewsForParent
 );
 
 interviewRoute.post(
