@@ -1,0 +1,39 @@
+# Keep local install artefacts out of the image — the build stage runs
+# `npm ci` inside the container, which produces a clean node_modules tied
+# to the lockfile. If we copied the host's node_modules we'd poison that.
+node_modules
+npm-debug.log*
+
+# Local build output — the container does its own `npm run build`.
+dist
+build
+
+# Version control metadata — not useful at runtime, big to copy.
+.git
+.gitignore
+.gitattributes
+
+# Env + secrets — these get supplied at deploy time via platform env vars,
+# not baked into the image.
+.env
+.env.*
+config.env
+*.env.local
+
+# Local editor / OS droppings
+.DS_Store
+.vscode
+.idea
+*.swp
+
+# Test + docs — not needed in the server image
+__tests__
+*.test.ts
+*.spec.ts
+coverage
+README.md
+docs
+
+# Docker itself — don't recurse
+Dockerfile
+.dockerignore
