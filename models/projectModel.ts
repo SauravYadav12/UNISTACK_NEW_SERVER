@@ -132,14 +132,28 @@ const projectSchema = new mongoose.Schema<ProjectDoc>(
     primeVendorName: { type: String },
     primeVendorPhone: { type: String },
     primeVendorEmail: { type: String },
+    // New — required when the admin wants the invoice's Bill-To to show a
+    // prime-vendor mailing address. Kept separate from clientAddress so the
+    // three parties' postal details don't step on each other.
+    primeVendorAddress: { type: String },
     vendorCompany: { type: String },
     vendorWebsite: { type: String },
     vendorPersonName: { type: String },
     vendorPhone: { type: String },
     vendorEmail: { type: String },
+    vendorAddress: { type: String },
     rate: { type: Array },
     taxType: { type: Array },
     duration: { type: Array },
+
+    // Which party the invoice is billed to. Drives which company + address
+    // is rendered in the Bill-To card on InvoicePreview. Defaults to Client
+    // for backward compatibility with existing projects.
+    billToCustomer: {
+      type: String,
+      enum: ["Client", "Vendor", "Prime Vendor"],
+      default: "Client",
+    },
 
     // Project-owned
     status: {

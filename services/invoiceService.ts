@@ -7,25 +7,57 @@ import { monthlySequenceId } from "../utils/monthlySequenceId";
 import { lineAmount, rebuildTotals } from "../utils/billingMath";
 import { IInvoiceLineItem } from "../interface/modelInterfaces";
 
-// Extract the hourly rate from a project's frozen rate snapshot. The rate
-// shape is an array of { value, currency } objects (or plain strings in
-// legacy rows). Anything we can't parse falls back to 0 + "USD" — caller
-// sees a Draft with zero totals, which is the correct signal to fix the
-// project's rate before raising.
+// Extract the hourly rate from a project's frozen rate snapshot.
+//
+// Supported input shapes (in order of priority):
+//   1. Object: `{ value: number, currency: string }`  — structured path.
+//   2. String: "$55/hr", "$90", "₹1000/hr", "USD 55", "55", "5,500.50", etc.
+//      The parser strips commas, pulls the first numeric run, and sniffs
+//      the currency from common symbols (`$€£¥₹`) or a 3-letter ISO code.
+//
+// The previous implementation treated strings as `Number(r)` which returns
+// NaN for anything with a currency symbol or unit suffix — so a perfectly
+// valid rate like "$55/hr" on the requirement would flow into the invoice
+// as 0, producing zero-total drafts. The fix parses the numeric payload.
 function extractRate(
-  project: ProjectDoc
+  project: ProjectDoc,
 ): { value: number; currency: string } {
   const arr = (project.rate as unknown[]) || [];
   if (!Array.isArray(arr) || arr.length === 0) return { value: 0, currency: "USD" };
-  const r = arr[0] as { value?: unknown; currency?: unknown } | string;
-  if (typeof r === "string") {
-    const n = Number(r);
-    return { value: Number.isFinite(n) ? n : 0, currency: "USD" };
+  const r = arr[0];
+
+  // Structured shape: `{ value, currency }`.
+  if (r && typeof r === "object" && !Array.isArray(r)) {
+    const obj = r as { value?: unknown; currency?: unknown };
+    const value = Number(obj.value ?? 0);
+    const currency =
+      (typeof obj.currency === "string" && obj.currency) || "USD";
+    return { value: Number.isFinite(value) ? value : 0, currency };
   }
-  const value = Number((r && r.value) || 0);
-  const currency =
-    (r && typeof r.currency === "string" && r.currency) || "USD";
-  return { value: Number.isFinite(value) ? value : 0, currency };
+
+  // String shape — the common case in practice.
+  if (typeof r === "string") {
+    // Strip grouping commas ("5,500" → "5500") then grab the first number.
+    const cleaned = r.replace(/,/g, "");
+    const match = cleaned.match(/-?\d+(?:\.\d+)?/);
+    const value = match ? Number(match[0]) : 0;
+
+    // Currency heuristic: symbol first (most common), ISO code as fallback.
+    let currency = "USD";
+    if (r.includes("€")) currency = "EUR";
+    else if (r.includes("£")) currency = "GBP";
+    else if (r.includes("¥")) currency = "JPY";
+    else if (r.includes("₹")) currency = "INR";
+    else if (r.includes("$")) currency = "USD";
+    else {
+      const iso = r.match(/\b([A-Z]{3})\b/);
+      if (iso) currency = iso[1];
+    }
+
+    return { value: Number.isFinite(value) ? value : 0, currency };
+  }
+
+  return { value: 0, currency: "USD" };
 }
 
 const MONTH_NAMES_LONG = [

@@ -415,14 +415,19 @@ export interface IProject {
   primeVendorName?: string;
   primeVendorPhone?: string;
   primeVendorEmail?: string;
+  primeVendorAddress?: string;
   vendorCompany?: string;
   vendorWebsite?: string;
   vendorPersonName?: string;
   vendorPhone?: string;
   vendorEmail?: string;
+  vendorAddress?: string;
   rate?: unknown[];
   taxType?: unknown[];
   duration?: unknown[];
+
+  /** Which party the invoice is billed to. Drives the Bill-To rendering. */
+  billToCustomer?: 'Client' | 'Vendor' | 'Prime Vendor';
 
   // Project-owned fields
   status: ProjectStatus;
