@@ -76,6 +76,14 @@ const invoiceSchema = new mongoose.Schema<InvoiceDoc>(
     paymentNotes: { type: String },
 
     emailedTo: { type: [String], default: [] },
+    // CC list from the most recent send. Kept separate from emailedTo so the
+    // Resend dialog can rebuild the To/CC split exactly as it went out.
+    emailedCc: { type: [String], default: [] },
+    // Subject + body of the last send — restored into the Resend compose
+    // dialog so the operator edits the actual previous message instead of
+    // re-typing or starting from the template defaults.
+    emailedSubject: { type: String },
+    emailedBody: { type: String },
     emailedAt: { type: Date },
     dueNotifiedAt: { type: Date },
 

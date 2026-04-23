@@ -561,6 +561,15 @@ export interface IInvoice {
   paymentNotes?: string;
 
   emailedTo: string[];
+  /** CC list from the most recent send. Stored separately from emailedTo so
+   *  the Resend dialog can faithfully restore the To/CC split (and not paste
+   *  CC addresses into the To field). */
+  emailedCc?: string[];
+  /** Last-sent subject line. Restored into the Resend dialog. */
+  emailedSubject?: string;
+  /** Last-sent body text (plain — the brand HTML shell is re-applied by the
+   *  email service on each send). */
+  emailedBody?: string;
   emailedAt?: string;
   dueNotifiedAt?: string;
 

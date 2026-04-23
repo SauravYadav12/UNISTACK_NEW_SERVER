@@ -258,7 +258,13 @@ export const raiseInvoice = async (req: Request, res: Response) => {
     const ccList = (cc || []).filter((e) => e && e.includes("@"));
     const recipients =
       toList.length > 0 ? toList : collectInvoiceRecipients(project);
-    doc.emailedTo = [...recipients, ...ccList];
+    // Store To and CC separately — the Resend compose dialog reads each list
+    // back into its own input so the operator edits the same shape that
+    // actually went out.
+    doc.emailedTo = recipients;
+    doc.emailedCc = ccList;
+    doc.emailedSubject = subject;
+    doc.emailedBody = body;
 
     try {
       if (recipients.length) {
@@ -350,6 +356,16 @@ export const markUnpaid = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Resend the invoice email. The client always opens its compose dialog first
+ * and POSTs the user-edited `{ to, cc, subject, body, pdfUrl }` payload — so
+ * the previous "no recipients configured on the project" failure mode is gone:
+ * if the operator typed an address into the dialog, we honour it.
+ *
+ * Backwards-compat: when called with no body (e.g. legacy API tooling), we
+ * fall back to the previous behavior — recipientOverride or the project's
+ * configured invoiceRecipients flags.
+ */
 export const resendInvoiceEmail = async (req: Request, res: Response) => {
   try {
     const doc = await InvoiceModel.findById(req.params.id);
@@ -369,17 +385,53 @@ export const resendInvoiceEmail = async (req: Request, res: Response) => {
       res.status(404).json({ status: "failed", message: "Project not found" });
       return;
     }
-    const { recipientOverride } = req.body as { recipientOverride?: string[] };
-    const recipients = collectInvoiceRecipients(project, recipientOverride);
+
+    const { to, cc, subject, body, pdfUrl, recipientOverride } = req.body as {
+      to?: string[];
+      cc?: string[];
+      subject?: string;
+      body?: string;
+      pdfUrl?: string;
+      /** @deprecated kept for API tooling — equivalent to passing `to`. */
+      recipientOverride?: string[];
+    };
+
+    const explicitTo = (to ?? recipientOverride ?? [])
+      .filter((e) => e && e.includes("@"));
+    const ccList = (cc || []).filter((e) => e && e.includes("@"));
+
+    // Resolve the actual To list. Priority:
+    //   1. explicit `to` from the dialog (the common path)
+    //   2. project's invoiceRecipients flags (legacy / API tooling)
+    // Only failure mode is "neither path produced any address" — and even
+    // then we surface a clearer message that guides the operator back to
+    // the dialog instead of telling them to fix the project.
+    const recipients =
+      explicitTo.length > 0 ? explicitTo : collectInvoiceRecipients(project);
     if (!recipients.length) {
       res.status(400).json({
         status: "failed",
-        message: "No recipients configured on the project",
+        message:
+          "Add at least one recipient in the To field before resending.",
       });
       return;
     }
-    await sendInvoiceRaisedEmail({ invoice: doc, project, to: recipients });
+
+    if (typeof pdfUrl === "string" && pdfUrl.length) doc.pdfUrl = pdfUrl;
+
+    await sendInvoiceRaisedEmail({
+      invoice: doc,
+      project,
+      to: recipients,
+      cc: ccList,
+      subject,
+      body,
+    });
+
     doc.emailedTo = recipients;
+    doc.emailedCc = ccList;
+    if (typeof subject === "string") doc.emailedSubject = subject;
+    if (typeof body === "string") doc.emailedBody = body;
     doc.emailedAt = new Date();
     await doc.save();
     res.status(200).json({ status: "success", data: doc });
