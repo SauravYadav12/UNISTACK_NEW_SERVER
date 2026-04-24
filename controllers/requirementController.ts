@@ -72,6 +72,15 @@ export const getAllRrequirements = async (req: Request, res: Response) => {
     >;
     const fetchingChildren = typeof parentReqID === "string" && parentReqID.length > 0;
 
+    // An explicit reqID lookup is an exact-match pull — the caller already
+    // knows which document they want (typically a drawer/detail pane). The
+    // parent-hiding branch below was designed to keep the grid honest
+    // under status/owner filters; it must NOT clobber a direct lookup of
+    // a parent-with-children, which is exactly what the "Edit on parent"
+    // button does. Used as an opt-out below.
+    const isExplicitReqIDLookup =
+      typeof rest.reqID === "string" && (rest.reqID as string).length > 0;
+
     // When the user applies any non-pagination filter (searching for a
     // reqID, assignee, status, etc.), include children so their result
     // appears. The default unfiltered list keeps children tucked under
@@ -107,12 +116,17 @@ export const getAllRrequirements = async (req: Request, res: Response) => {
       ];
     }
 
-    // When any filter is applied (reqStatus / assignedToRef / reqID / …),
-    // a parent that has children would match misleadingly on its own stale
-    // fields (e.g. its reqStatus stays "New Working" forever, while the
-    // real work happens on children). Exclude those parents so the user
-    // only ever sees children and legacy standalone rows in filtered views.
-    if (!fetchingChildren && includeAll) {
+    // When any filter is applied (reqStatus / assignedToRef / …), a parent
+    // that has children would match misleadingly on its own stale fields
+    // (e.g. its reqStatus stays "New Working" forever, while the real work
+    // happens on children). Exclude those parents so the user only ever
+    // sees children and legacy standalone rows in filtered views.
+    //
+    // Exempt explicit reqID lookups (`?reqID=REQ-04`): those are exact-match
+    // pulls from a drawer/detail pane that must be able to load a parent
+    // even when that parent has children — otherwise the "Edit on parent"
+    // button shows a blank drawer.
+    if (!fetchingChildren && includeAll && !isExplicitReqIDLookup) {
       const parentIdsWithChildren = (await RequirementModel.distinct(
         "parentReqID",
         { parentReqID: { $exists: true, $ne: "" } }
