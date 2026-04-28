@@ -35,24 +35,10 @@ export const REQUIREMENT_STRING_FIELD_HINTS = {
   employementType:
     "Engagement type if stated (W2, C2C, 1099, full-time, etc.). Use the exact field name employementType.",
   jobPortalLink: "URL to the job posting or portal link if present.",
-  reqKeywords: "Short skill or keyword summary as a single string (e.g. comma-separated).",
+  reqKeywords:
+    "Short skill or keyword summary as a single string (e.g. comma-separated).",
   jobDescription: `Instructions:
-Please take the following source text and organize it into a clean, Markdown-formatted structure.
-Critical Rule: Do not remove, summarize, or edit any sentences or words from the original text. Your job is solely to apply a professional format to the existing content.
-Required Labels & Structure:
-Job Title: [Full original text]
-Employment Type: [Full original text]
-Job Portal Link: [Full original text]
-Job Description: [Full original text]
-Primary Tech: [Full original text]
-Secondary Tech: [Full original text]
-Primary Tech Stack: [Full original text]
-Other Relevant Details: [Full original text]
-Formatting Guidelines:
-Preserve Content: Include every word from the source under its respective label.
-Bold Labels: Use ## for every section label and those labels present in the original text to make the layout easy to scan.
-Spacing: Add a clear line break between each section for a clean look.
-Missing Data: If a category is not mentioned in the source, simply write N/A.
+Critical Rule: Do not remove, summarize, or edit any sentences or words from the original text (job description) and add all the details as it is.
 `,
   recordOwner: "Recruiter or record owner name if implied.",
   primaryTech: "Primary technology or stack focus.",
@@ -65,13 +51,13 @@ Missing Data: If a category is not mentioned in the source, simply write N/A.
  * JSON numbers in arrays are coerced to strings.
  */
 export const REQUIREMENT_ARRAY_FIELD_HINTS = {
-  rate: "Pay or bill rates, one entry per distinct value (e.g. \"$85/hr\", \"100-120\").",
+  rate: 'Pay or bill rates, one entry per distinct value (e.g. "$85/hr", "100-120").',
   taxType: "Tax-related labels if mentioned (e.g. W2, C2C).",
-  remote: "Percentage of remote work if mentioned (e.g. \"50% remote\", \"100% remote\", \"Hybrid\").",
-  duration: "Contract or engagement duration strings (e.g. \"6 months\", \"12 months +\" or \"Long-term\").",
+  remote:
+    'Percentage of remote work if mentioned (e.g. "50% remote", "100% remote", "Hybrid").',
+  duration:
+    'Contract or engagement duration strings (e.g. "6 months", "12 months +" or "Long-term").',
 } as const;
-
-
 
 /** Field names derived from {@link REQUIREMENT_STRING_FIELD_HINTS}. */
 export const REQUIREMENT_STRING_FIELDS = Object.keys(
@@ -95,7 +81,6 @@ export class RequirementExtractionValidationError extends Error {
   }
 }
 
-
 function formatFieldGuide(
   fieldHints: Readonly<Record<string, string>>,
   valueKind: "string" | "array",
@@ -115,7 +100,10 @@ function formatFieldGuide(
 
 function buildRequirementExtractionSystemPrompt(): string {
   const allKeys = REQUIREMENT_EXTRACTABLE_KEYS.join(", ");
-  const stringGuide = formatFieldGuide(REQUIREMENT_STRING_FIELD_HINTS, "string");
+  const stringGuide = formatFieldGuide(
+    REQUIREMENT_STRING_FIELD_HINTS,
+    "string",
+  );
   const arrayGuide = formatFieldGuide(REQUIREMENT_ARRAY_FIELD_HINTS, "array");
   return `You extract structured job requirement data from unstructured text.
 
@@ -133,7 +121,8 @@ ${arrayGuide}
 Complete key list: ${allKeys}.`;
 }
 
-const REQUIREMENT_EXTRACTION_SYSTEM_PROMPT = buildRequirementExtractionSystemPrompt();
+const REQUIREMENT_EXTRACTION_SYSTEM_PROMPT =
+  buildRequirementExtractionSystemPrompt();
 
 // ---------------------------------------------------------------------------
 // Validation: Zod schema + guards (grouped for clarity)
@@ -175,14 +164,12 @@ function buildRequirementExtractedSchema() {
 
 export const requirementExtractedSchema = buildRequirementExtractedSchema();
 
-
 function zodIssuesToDetails(error: z.ZodError): string[] {
   return error.issues.map((issue) => {
     const path = issue.path.length ? issue.path.join(".") : "(root)";
     return `${path}: ${issue.message}`;
   });
 }
-
 
 function parseExtractionJsonFromModelText(text: string): unknown {
   const trimmed = text.trim();
@@ -222,7 +209,9 @@ export function validateAndNormalizeRequirementExtracted(
   return parseExtractionZodResult(requirementExtractedSchema.safeParse(raw));
 }
 
-function validateExtractionApiInput(input: ExtractRequirementFromContentInput): {
+function validateExtractionApiInput(
+  input: ExtractRequirementFromContentInput,
+): {
   content: string;
   instruction?: string;
 } {
@@ -233,7 +222,9 @@ function validateExtractionApiInput(input: ExtractRequirementFromContentInput): 
     ]);
   }
   const trimmedInstruction =
-    instruction !== undefined && instruction !== null && String(instruction).trim()
+    instruction !== undefined &&
+    instruction !== null &&
+    String(instruction).trim()
       ? String(instruction).trim()
       : undefined;
   return { content: content.trim(), instruction: trimmedInstruction };
@@ -250,7 +241,6 @@ function extractTextFromAnthropicMessage(
   }
   return textBlock.text;
 }
-
 
 /**
  * Calls Claude to map free-form content into requirement-shaped fields,
@@ -294,12 +284,14 @@ export async function extractRequirementFromContent(
   return validateAndNormalizeRequirementExtracted(parsed);
 }
 
-
 export type RequirementExtracted = z.output<typeof requirementExtractedSchema>;
 export interface ExtractRequirementFromContentInput {
   content: string;
   instruction?: string;
-}export type RequirementStringField = keyof typeof REQUIREMENT_STRING_FIELD_HINTS;
+}
+export type RequirementStringField =
+  keyof typeof REQUIREMENT_STRING_FIELD_HINTS;
 export type RequirementArrayField = keyof typeof REQUIREMENT_ARRAY_FIELD_HINTS;
 export type RequirementExtractableKey =
-  RequirementStringField | RequirementArrayField;
+  | RequirementStringField
+  | RequirementArrayField;
