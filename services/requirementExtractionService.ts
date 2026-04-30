@@ -37,9 +37,7 @@ export const REQUIREMENT_STRING_FIELD_HINTS = {
   jobPortalLink: "URL to the job posting or portal link if present.",
   reqKeywords:
     "Short skill or keyword summary as a single string (e.g. comma-separated).",
-  jobDescription: `Instructions:
-Critical Rule: Do not remove, summarize, or edit any sentences or words from the original text (job description) and add all the details as it is.
-`,
+  jobDescription: `Here add the user text input as it is without any modification or summarization. spaces and new lines should be preserved.`,
   recordOwner: "Recruiter or record owner name if implied.",
   primaryTech: "Primary technology or stack focus.",
   secondaryTech: "Secondary tools or technologies.",
