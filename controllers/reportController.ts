@@ -14,6 +14,7 @@ import { UserRole } from "../enums/UserEnum";
 
 const reqStatusList: RequirementStatus[] = [
   "New Working",
+  "Submission In Progress",
   "Submitted",
   "Project Active",
   "Interviewed",
