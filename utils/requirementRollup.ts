@@ -10,7 +10,7 @@ import { INTERVIEWED_OR_BEYOND, SUBMITTED_OR_BEYOND } from "./scoring";
  * parent for the progress that actually happened.
  *
  * Ranking (highest wins):
- *   Project Active > Interviewed > Submitted > New Working
+ *   Project Active > Interviewed > Submitted > Submission in progress > New Working
  *
  * "Project Inactive" and "Cancelled" are deliberately NOT treated as
  * "better" than Interviewed — they're closure states, not progress states,
@@ -18,10 +18,17 @@ import { INTERVIEWED_OR_BEYOND, SUBMITTED_OR_BEYOND } from "./scoring";
  * Submitted. "Project Inactive" lands at the bottom of the positive ladder
  * (higher than Cancelled, lower than New Working) so a parent that had one
  * project spin down isn't counted as "active".
+ *
+ * "Submission in progress" sits between New Working and Submitted — a
+ * transitional state where the consultant is being prepared for a formal
+ * submission. It outranks New Working in the rollup so a parent with one
+ * child still being prepared and another untouched reports as the more
+ * advanced state.
  */
 
 export type RequirementStatusLike =
   | "New Working"
+  | "Submission in progress"
   | "Submitted"
   | "Interviewed"
   | "Project Active"
@@ -33,6 +40,7 @@ const STATUS_RANK: RequirementStatusLike[] = [
   "Cancelled",
   "Project Inactive",
   "New Working",
+  "Submission in progress",
   "Submitted",
   "Interviewed",
   "Project Active",

@@ -1,7 +1,7 @@
 import { RequirementModel } from "../models/requirementModel";
 
 // Requirement lifecycle (informational):
-//   New Working → Submitted → Interviewed → Project Active → Project Inactive
+//   New Working → Submission in progress → Submitted → Interviewed → Project Active → Project Inactive
 // "Cancelled" is an explicit off-ramp and can happen at any point.
 const TERMINAL_STATUSES = new Set([
   "Project Active",
@@ -9,7 +9,15 @@ const TERMINAL_STATUSES = new Set([
   "Cancelled",
 ]);
 
-const PRE_INTERVIEWED_STATUSES = new Set(["New Working", "Submitted"]);
+// Statuses that an "Interview Completed" event can upgrade to "Interviewed".
+// "Submission in progress" is included so an interview booked while the
+// consultant was still being prepped (and never formally re-marked Submitted)
+// still gets credited to Interviewed when the interview wraps up.
+const PRE_INTERVIEWED_STATUSES = new Set([
+  "New Working",
+  "Submission in progress",
+  "Submitted",
+]);
 
 interface SyncInput {
   reqID?: string | null;

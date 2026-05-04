@@ -129,8 +129,21 @@ export async function sendInvoiceRaisedEmail(opts: {
       ]
     : [];
 
-  await mailTransporter.sendMail({
+  // Capture the SMTP response so we can tell — when a recipient (typically
+  // a Gmail address) "doesn't get the email" — whether it was:
+  //   (a) rejected at SMTP time → it lands in `info.rejected`, indicating
+  //       a code/relay issue we need to address;
+  //   (b) accepted by the SMTP server → it lands in `info.accepted` and
+  //       the message left our system; any later non-delivery is a
+  //       deliverability problem (SPF/DKIM/DMARC, spam folder, recipient
+  //       block) on the receiving side, NOT a bug here.
+  // Without this log we'd be guessing; with it the cause is unambiguous.
+  const info = await mailTransporter.sendMail({
     from: fromAddress(),
+    // `replyTo` makes replies route back to the company inbox even when
+    // the auth-user (envelope) is a different relay account. Also a small
+    // positive signal in Gmail's spam scoring.
+    replyTo: fromAddress(),
     to: opts.to.join(", "),
     cc: (opts.cc || []).length ? (opts.cc || []).join(", ") : undefined,
     subject: finalSubject,
@@ -142,6 +155,16 @@ export async function sendInvoiceRaisedEmail(opts: {
         ? [...pdfAttachment, ...screenshotAttachments]
         : undefined,
   });
+
+  console.log(
+    `[invoice-email] ${opts.invoice.invoiceNumber} sent`,
+    {
+      messageId: info?.messageId,
+      accepted: info?.accepted,
+      rejected: info?.rejected,
+      response: info?.response,
+    }
+  );
 }
 
 export async function sendInvoiceDueEmail(opts: {

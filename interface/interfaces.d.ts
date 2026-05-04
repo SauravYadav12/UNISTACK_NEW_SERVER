@@ -22,6 +22,7 @@ export type InterviewReport = {
 
 export type RequirementStatus =
   | "New Working"
+  | "Submission in progress"
   | "Submitted"
   | "Interviewed"
   | "Cancelled"
