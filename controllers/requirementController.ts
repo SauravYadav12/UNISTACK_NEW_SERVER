@@ -67,11 +67,15 @@ export const getAllRrequirements = async (req: Request, res: Response) => {
   try {
     // Caller can opt in to seeing child assignments inline
     // (e.g. grid expansion fetches children by parentReqID=REQ-05).
-    const { includeChildren, parentReqID, ...rest } = req.query as Record<
-      string,
-      unknown
-    >;
+    const { includeChildren, parentReqID, onlyChildren, ...rest } =
+      req.query as Record<string, unknown>;
     const fetchingChildren = typeof parentReqID === "string" && parentReqID.length > 0;
+    // PipelineSnapshot's "All Assigned" tile uses this — count of every
+    // child requirement irrespective of which parent they belong to.
+    // Bypasses the default parent-only view and the parent-hiding filter,
+    // so totalDocuments on the response is purely the number of children.
+    const onlyChildrenMode =
+      onlyChildren === "true" || onlyChildren === "1" || onlyChildren === true;
 
     // An explicit reqID lookup is an exact-match pull — the caller already
     // knows which document they want (typically a drawer/detail pane). The
@@ -107,7 +111,10 @@ export const getAllRrequirements = async (req: Request, res: Response) => {
     // Top-level grid shows parents + legacy standalone rows only. Children
     // are fetched separately when a user expands a parent row.
     const finalQuery: Record<string, unknown> = { ...query };
-    if (fetchingChildren) {
+    if (onlyChildrenMode) {
+      // Count-or-list every child requirement, regardless of parent.
+      finalQuery.parentReqID = { $exists: true, $nin: [null, ""] };
+    } else if (fetchingChildren) {
       finalQuery.parentReqID = parentReqID;
     } else if (!includeAll) {
       finalQuery.$or = [
@@ -127,7 +134,12 @@ export const getAllRrequirements = async (req: Request, res: Response) => {
     // pulls from a drawer/detail pane that must be able to load a parent
     // even when that parent has children — otherwise the "Edit on parent"
     // button shows a blank drawer.
-    if (!fetchingChildren && includeAll && !isExplicitReqIDLookup) {
+    if (
+      !fetchingChildren &&
+      !onlyChildrenMode &&
+      includeAll &&
+      !isExplicitReqIDLookup
+    ) {
       const parentIdsWithChildren = (await RequirementModel.distinct(
         "parentReqID",
         { parentReqID: { $exists: true, $ne: "" } }
