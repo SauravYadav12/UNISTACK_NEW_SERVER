@@ -12,6 +12,7 @@ import {
   sequenceId,
 } from "../utils/utils";
 import { RequirementModel } from "../models/requirementModel";
+import { IRequirement } from "../interface/modelInterfaces";
 import { InterviewModel } from "../models/interviewModel";
 import { ProjectModel } from "../models/projectModel";
 import RequirementLogModel from "../models/requirement.log.model";
@@ -161,7 +162,35 @@ export const getAllRrequirements = async (req: Request, res: Response) => {
       .limit(fetchingChildren ? 0 : limit)
       .skip(fetchingChildren ? 0 : startIndex)
       .exec();
-    const data = { ...instanceWithAccurateCount, results: requirements };
+
+    // Enrich parent rows with `hasChildren` so the client grid can render
+    // the expand chevron only when there's something to expand. Skipped
+    // when fetching children (every row already IS a child) and when
+    // there are no parent-shaped reqIDs in the result set. One distinct
+    // query irrespective of result count.
+    const parentReqIDs = fetchingChildren
+      ? []
+      : requirements
+          .filter((r) => !r.parentReqID && r.reqID)
+          .map((r) => r.reqID as string);
+    let parentsWithChildrenSet = new Set<string>();
+    if (parentReqIDs.length) {
+      const distinctParents = (await RequirementModel.distinct("parentReqID", {
+        parentReqID: { $in: parentReqIDs },
+      })) as string[];
+      parentsWithChildrenSet = new Set(distinctParents.filter(Boolean));
+    }
+    const enriched = requirements.map((r) => {
+      const obj = r.toObject() as unknown as IRequirement & {
+        hasChildren?: boolean;
+      };
+      if (!r.parentReqID && r.reqID && parentsWithChildrenSet.has(r.reqID)) {
+        obj.hasChildren = true;
+      }
+      return obj;
+    });
+
+    const data = { ...instanceWithAccurateCount, results: enriched };
     res.status(200).json({
       status: "success",
       data: data,

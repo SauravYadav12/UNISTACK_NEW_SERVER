@@ -109,6 +109,9 @@ export interface IRequirement {
   duplicateWith?: string;
   parentReqID?: string;
   childSuffix?: string;
+  /** Response-only flag — set in `getAllRrequirements` for parent rows that
+   *  have at least one child. Never persisted on the document. */
+  hasChildren?: boolean;
   createdAt: string;
   updatedAt: string;
 }

@@ -1,10 +1,21 @@
 import express from "express";
 import path from "path";
 import cors from "cors";
+import dns from "dns";
 import passport from "passport";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 dotenv.config();
+
+// Pin Node's DNS resolver to Google + Cloudflare. The DigitalOcean managed
+// MongoDB connection string is `mongodb+srv://...`, which requires an SRV
+// record lookup before the driver can dial any host. On some machines the
+// macOS `scutil --dns` order has a VPN-injected or captive-portal resolver
+// listed first that refuses SRV queries — Node hits that one and the boot
+// crashes with `querySrv EREFUSED` even though `dig` (which uses the ISP
+// DNS directly) gets a clean answer. Overriding here makes the resolver
+// behaviour deterministic across machines.
+dns.setServers(["8.8.8.8", "1.1.1.1", "8.8.4.4"]);
 import { usersRoute } from "./routes/usersRoute";
 import { requirementRoute } from "./routes/requirementsRoute";
 import { interviewRoute } from "./routes/interviewsRoute";
