@@ -415,10 +415,55 @@ export const requirementsCounts = async (req: Request, res: Response) => {
       date,
       timezone = "Asia/Kolkata",
       archive = false,
+      // Pull the listing-shaped filters out so we can mirror the same
+      // parent/child segmenting that `getAllRrequirements` applies. The
+      // count must agree with what's visible in the grid for that date —
+      // otherwise a "New Working" filter shows N rows but the date pill
+      // says 00 because counts were always restricted to parents.
+      onlyChildren,
+      includeChildren,
+      parentReqID,
+      reqStatus,
+      reqID: filterReqID,
       ...filters
     } = req.query;
     let iDates = date;
-    const { query } = handlePaginationQuery(filters);
+    // `handlePaginationQuery` only knows about the leftover filters, but
+    // we need to also fold in `reqStatus` / `reqID` filters so the count
+    // applies to the same documents that `getAllRrequirements` would
+    // return for the same query string.
+    const { query } = handlePaginationQuery({
+      ...filters,
+      ...(typeof reqStatus === "string" && reqStatus.length > 0
+        ? { reqStatus }
+        : {}),
+      ...(typeof filterReqID === "string" && filterReqID.length > 0
+        ? { reqID: filterReqID }
+        : {}),
+    });
+
+    // Parent / child segmentation — mirror the same three-way branch from
+    // `getAllRrequirements` so the count tracks the visible grid rows.
+    const onlyChildrenMode =
+      onlyChildren === "true" || onlyChildren === "1";
+    const fetchingChildren =
+      typeof parentReqID === "string" && (parentReqID as string).length > 0;
+    const isExplicitReqIDLookup =
+      typeof filterReqID === "string" && (filterReqID as string).length > 0;
+    const nonPaginationFilterKeys = Object.keys(filters).filter((k) => {
+      if (["page", "limit", "sort", "timezone", "archive"].includes(k))
+        return false;
+      const v = (filters as Record<string, unknown>)[k];
+      return v !== undefined && v !== null && v !== "";
+    });
+    const includeAll =
+      onlyChildrenMode ||
+      fetchingChildren ||
+      includeChildren === "true" ||
+      includeChildren === "1" ||
+      isExplicitReqIDLookup ||
+      (typeof reqStatus === "string" && reqStatus.length > 0) ||
+      nonPaginationFilterKeys.length > 0;
 
     if (!iDates) {
       res.status(400).json({
@@ -476,22 +521,45 @@ export const requirementsCounts = async (req: Request, res: Response) => {
     const minDate = new Date(minInputDate.getTime() - 24 * 60 * 60 * 1000);
     const maxDate = new Date(maxInputDate.getTime() + 24 * 60 * 60 * 1000);
 
+    // Build the parent/child match. Three branches that mirror the
+    // listing endpoint exactly so the date-pill count agrees with the
+    // number of rows the grid renders for that day under the same filter:
+    //   (a) onlyChildren=true     → count just children
+    //   (b) any filter applied    → count children + parents-WITHOUT-
+    //                                children (skip parents-with-children
+    //                                because their stale status would
+    //                                mislead the per-day total)
+    //   (c) unfiltered            → count parents + legacy standalones
+    const matchStage: Record<string, unknown> = {
+      ...query,
+      createdAt: { $gte: minDate, $lte: maxDate },
+    };
+    if (onlyChildrenMode) {
+      matchStage.parentReqID = { $exists: true, $nin: [null, ""] };
+    } else if (!includeAll) {
+      matchStage.parentReqID = { $in: [null, ""] };
+    } else if (!isExplicitReqIDLookup && !fetchingChildren) {
+      // Filtered view — exclude parents-with-children so they don't
+      // double-count alongside their kids.
+      const parentIdsWithChildren = (await RequirementModel.distinct(
+        "parentReqID",
+        { parentReqID: { $exists: true, $ne: "" } }
+      )) as string[];
+      if (parentIdsWithChildren.length > 0) {
+        matchStage.$or = [
+          { parentReqID: { $exists: true, $nin: [null, ""] } },
+          { reqID: { $nin: parentIdsWithChildren } },
+        ];
+      }
+    }
+
     const aggregationResult = await (
       archive.toString().toLowerCase() === "true"
         ? ArchiveRequirement
         : RequirementModel
     ).aggregate([
       {
-        $match: {
-          ...query,
-          // Count only parents + legacy standalone — child assignments
-          // aren't independent requirements for dashboard/heatmap purposes.
-          parentReqID: { $in: [null, ""] },
-          createdAt: {
-            $gte: minDate,
-            $lte: maxDate,
-          },
-        },
+        $match: matchStage,
       },
       {
         $group: {
