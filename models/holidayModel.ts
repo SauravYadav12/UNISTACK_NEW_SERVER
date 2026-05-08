@@ -71,7 +71,26 @@ const holiday = new mongoose.Schema<HolidayDoc>(
 );
 
 holiday.index({ country: 1, fromDate: 1 });
-holiday.index({ externalId: 1, country: 1 }, { unique: true, sparse: true });
+// Sync-imported holidays carry a stable `externalId` (set in
+// holidaySyncService as `holidays:<country>:<isoDate>`) and need to dedup
+// against each other. Manually-added holidays leave `externalId` null /
+// undefined and must be allowed to coexist freely for the same country.
+//
+// We previously used `sparse: true` here, but Mongo's sparse index only
+// exempts docs where the field is fully ABSENT — once Mongoose persisted
+// `externalId: null` on a manual row, the second manual row for the same
+// country tripped the unique check (E11000 with keyValue `(null, "US")`).
+// `partialFilterExpression: { externalId: { $type: 'string' } }` is the
+// correct gate: only string-valued externalIds participate in the unique
+// constraint, so manual rows (null / missing) are exempt while sync rows
+// continue to dedup. Mirrors the pattern used in leaveTypeModel.ts.
+holiday.index(
+  { externalId: 1, country: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { externalId: { $type: "string" } },
+  },
+);
 
 export const HolidayModel = mongoose.model<HolidayDoc>("Holiday", holiday);
 
