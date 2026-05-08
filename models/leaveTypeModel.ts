@@ -62,8 +62,10 @@ export const LeaveTypeModel = model<LeaveTypeDoc>("LeaveType", leaveTypeSchema);
 
 // Seeded once on server start if no types exist.
 export const DEFAULT_LEAVE_TYPES: Array<Partial<LeaveTypeDoc>> = [
-  // Monthly-capped: 1.5 days/month accrual, carried forward within the year.
-  { name: "Paid Leave", code: "PL", paid: true, defaultAllocationPerYear: 10, monthlyQuota: 1.5, color: "#EC4599" },
+  // Monthly-capped: 1 day/month accrual, carried forward within the year.
+  // `monthlyQuota` is the per-user-per-month rate. CL/SL keep 1.5 (legacy
+  // policy); PL is 1/mo per the company's current allocation policy.
+  { name: "Paid Leave", code: "PL", paid: true, defaultAllocationPerYear: 10, monthlyQuota: 1, color: "#EC4599" },
   { name: "Casual Leave", code: "CL", paid: true, defaultAllocationPerYear: 0, monthlyQuota: 1.5, color: "#37B7EA" },
   { name: "Sick Leave", code: "SL", paid: true, defaultAllocationPerYear: 0, monthlyQuota: 1.5, color: "#F59E0B" },
   // ML has no monthly cap per product decision — full annual bucket available.

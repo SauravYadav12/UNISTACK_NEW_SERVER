@@ -63,27 +63,62 @@ export async function listBalancesForUser(userId: string | Types.ObjectId, year:
  * specific leave type, after applying the monthly quota and carry-forward.
  *
  * Formula:
- *   monthlyCeiling = min(month * monthlyQuota, allocated)
+ *   effectiveQuota = balance.monthlyQuota               (per-user override)
+ *                 ?? type.monthlyQuota                  (type default, e.g. PL = 1/mo)
+ *                 ?? null                               (uncapped — ML / UL)
+ *   monthlyCeiling = min(month * effectiveQuota, allocated)
  *   available      = max(monthlyCeiling - used, 0)
  *
- * A null/undefined monthlyQuota means "no monthly restriction" — the full
- * remaining annual balance is available (used for UL and ML).
+ * Per-user override on `LeaveBalance.monthlyQuota` always wins — admin
+ * can tune individual employees (`0` disables accrual; any number sets
+ * a custom rate) without touching the type for everyone else.
+ *
+ * `null`/undefined `monthlyQuota` (on either) means "no monthly cap" —
+ * the full remaining annual balance is available (ML, UL).
  */
 export function computeMonthlyAvailable(
   type: Pick<LeaveTypeDoc, "monthlyQuota" | "isUnpaidBucket">,
-  balance: { allocated: number; used: number } | null,
+  balance:
+    | { allocated: number; used: number; monthlyQuota?: number | null }
+    | null,
   month: number, // 1–12
 ): number {
   const allocated = balance?.allocated ?? 0;
   const used = balance?.used ?? 0;
 
-  // UL / types without a monthly cap — just expose remaining annual.
-  if (type.isUnpaidBucket || type.monthlyQuota == null) {
+  // UL → no monthly cap, expose remaining annual.
+  if (type.isUnpaidBucket) {
     return Math.max(allocated - used, 0);
   }
 
-  const monthlyCeiling = Math.min(month * type.monthlyQuota, allocated);
+  // Effective monthly quota:
+  //   - per-user override wins (numeric 0 = no accrual; any number = rate)
+  //   - else fall back to the LeaveType's global default (e.g. PL = 1/mo)
+  //   - null on both means uncapped (ML)
+  const effectiveQuota =
+    balance?.monthlyQuota != null ? balance.monthlyQuota : type.monthlyQuota;
+
+  if (effectiveQuota == null) {
+    return Math.max(allocated - used, 0);
+  }
+
+  const monthlyCeiling = Math.min(month * effectiveQuota, allocated);
   return Math.max(monthlyCeiling - used, 0);
+}
+
+/**
+ * Pure helper that returns the same effective monthly quota
+ * `computeMonthlyAvailable` uses internally. Exported so the controller
+ * can surface it on the listing response (so the admin UI shows what
+ * each employee accrues per month at a glance).
+ */
+export function effectiveMonthlyQuota(
+  type: Pick<LeaveTypeDoc, "monthlyQuota" | "isUnpaidBucket">,
+  balance: { allocated: number; monthlyQuota?: number | null } | null,
+): number | null {
+  if (type.isUnpaidBucket) return null;
+  if (balance?.monthlyQuota != null) return balance.monthlyQuota;
+  return type.monthlyQuota ?? null;
 }
 
 /**
@@ -120,12 +155,25 @@ export async function computeLeaveSplit(args: {
 
   const monthlyAvailable = computeMonthlyAvailable(
     type,
-    balance ? { allocated: balance.allocated, used: balance.used } : null,
+    balance
+      ? {
+          allocated: balance.allocated,
+          used: balance.used,
+          monthlyQuota: balance.monthlyQuota,
+        }
+      : null,
     args.month,
   );
 
-  // UL or no monthly cap → never splits.
-  if (type.isUnpaidBucket || type.monthlyQuota == null) {
+  // Reuse the shared helper so split logic and ceiling logic agree on
+  // what the effective quota is. `null` means uncapped — never splits.
+  const effective = effectiveMonthlyQuota(
+    type,
+    balance ? { allocated: balance.allocated, monthlyQuota: balance.monthlyQuota } : null,
+  );
+
+  // UL or uncapped → never splits.
+  if (type.isUnpaidBucket || effective == null) {
     return {
       type,
       monthlyAvailable,
@@ -167,15 +215,35 @@ export async function listBalancesForYear(year: number) {
     .lean();
 }
 
+/**
+ * Upsert a user's allocation for a (year, leaveType). When `monthlyQuota`
+ * is supplied as a number, it overrides the LeaveType's global quota for
+ * this row. Pass `null` to *clear* the override and revert to the global
+ * default. `undefined` (not in the patch) leaves the existing override
+ * untouched.
+ *
+ * Used for mid-year joiners — admin sets a prorated `allocated` AND a
+ * lower `monthlyQuota` so the cumulative ceiling doesn't unlock the full
+ * balance immediately on the first eligible month.
+ */
 export async function setAllocation(
   userId: string | Types.ObjectId,
   year: number,
   leaveTypeId: string | Types.ObjectId,
   allocated: number,
+  options: { monthlyQuota?: number | null } = {},
 ) {
+  const update: Record<string, unknown> = {
+    allocated: Math.max(0, allocated),
+  };
+  if (options.monthlyQuota === null) {
+    update.monthlyQuota = null;
+  } else if (typeof options.monthlyQuota === "number") {
+    update.monthlyQuota = Math.max(0, options.monthlyQuota);
+  }
   return LeaveBalanceModel.findOneAndUpdate(
     { user: oid(userId), year, leaveType: oid(leaveTypeId) },
-    { $set: { allocated: Math.max(0, allocated) } },
+    { $set: update },
     { upsert: true, new: true, setDefaultsOnInsert: true },
   );
 }

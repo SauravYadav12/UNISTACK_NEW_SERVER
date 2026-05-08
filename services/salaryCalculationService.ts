@@ -82,10 +82,27 @@ interface LeaveAgg {
   unpaidDays: number;
 }
 
+// Minimal projection of `LeaveTypeDoc` that aggregateLeaves needs to bucket
+// each split item. Defined locally so callers can pass `.lean()` results
+// directly without conjuring a full Mongoose Doc.
+interface LeaveTypeForAgg {
+  isUnpaidBucket?: boolean;
+  paid?: boolean;
+  code?: string;
+  name?: string;
+}
+
+function isMedicalType(t: LeaveTypeForAgg | undefined): boolean {
+  if (!t) return false;
+  if (t.code === "ML") return true;
+  return /medical/i.test(t.name || "");
+}
+
 async function aggregateLeaves(
   userRef: string,
   fromDate: string,
   toDate: string,
+  typeById: Map<string, LeaveTypeForAgg>,
 ): Promise<LeaveAgg> {
   const leaveFilter: FilterQuery<LeaveDoc> = {
     userRef: new Types.ObjectId(userRef),
@@ -102,8 +119,46 @@ async function aggregateLeaves(
   for (const l of leaves) {
     const lStart = moment(l.startDate, "YYYY/MM/DD");
     const lEnd = moment(l.endDate, "YYYY/MM/DD");
-    let days = overlapDays(rangeStart, rangeEnd, lStart, lEnd);
-    if (l.isHalfDay) days = days * 0.5;
+    const overlap = overlapDays(rangeStart, rangeEnd, lStart, lEnd);
+    if (overlap <= 0) continue;
+    const halfDayMultiplier = l.isHalfDay ? 0.5 : 1;
+
+    // Prefer `splitBreakdown` when present — that's the per-bucket truth
+    // produced by `computeLeaveSplit` at apply time and used by
+    // `applyBalanceEffects` for balance accounting. The leave's whole-doc
+    // `paymentCategory` is a single flag (Paid/Medical/Unpaid) that
+    // *over-reports* unpaid days when a request was partially absorbed by
+    // the regular bucket and partially overflowed to UL — e.g., 3 leaves
+    // requested with balance=2 produced split [{PL, 2}, {UL, 1}] but the
+    // category got stamped Unpaid for the whole leave. Reading the split
+    // here makes the slip agree with the balance ledger.
+    const splits = l.splitBreakdown;
+    if (splits && splits.length > 0) {
+      const totalLeaveDays = lEnd.diff(lStart, "days") + 1;
+      // Multi-month leaves: scale the split proportionally to the slice
+      // that falls inside the slip's period. The balance side already
+      // posted the full split at approval; the slip just needs the share
+      // attributable to this month.
+      const ratio = totalLeaveDays > 0 ? overlap / totalLeaveDays : 1;
+      for (const item of splits) {
+        const t = typeById.get(String(item.leaveType));
+        const days = (item.days || 0) * ratio * halfDayMultiplier;
+        if (!t) {
+          // Orphan type reference — bucket as paid (least-harm: matches
+          // the legacy fallback when paymentCategory is missing).
+          agg.paidUsed += days;
+          continue;
+        }
+        if (t.isUnpaidBucket) agg.unpaidDays += days;
+        else if (isMedicalType(t)) agg.medicalUsed += days;
+        else agg.paidUsed += days;
+      }
+      continue;
+    }
+
+    // Legacy / unsplit leaves (pre-multi-bucket flow) — fall back to the
+    // whole-leave paymentCategory. Same behaviour as before this change.
+    const days = overlap * halfDayMultiplier;
     const cat = l.paymentCategory || LeavePaymentCategory.Paid;
     if (cat === LeavePaymentCategory.Paid) agg.paidUsed += days;
     else if (cat === LeavePaymentCategory.Medical) agg.medicalUsed += days;
@@ -186,13 +241,18 @@ export async function computeSalarySlip(
     .format("YYYY/MM/DD");
   const yearStart = moment({ year, month: 0, day: 1 }).format("YYYY/MM/DD");
 
-  const monthAgg = await aggregateLeaves(userId, monthStart, monthEnd);
-  const ytdAgg = await aggregateLeaves(userId, yearStart, monthEnd);
+  // Build `typeById` here (instead of after aggregateLeaves) so it can be
+  // threaded into both calls — aggregateLeaves now reads `splitBreakdown`
+  // on each leave and resolves each split item's leaveType to bucket the
+  // days as paid / medical / unpaid.
+  const typeById = new Map(allTypes.map((t) => [String(t._id), t]));
+
+  const monthAgg = await aggregateLeaves(userId, monthStart, monthEnd, typeById);
+  const ytdAgg = await aggregateLeaves(userId, yearStart, monthEnd, typeById);
 
   // Aggregate paid / medical buckets from the per-type LeaveBalance docs.
   // "Medical" is identified by a case-insensitive name match on "Medical"
   // OR by code "ML" — these seed values come from leaveTypeModel defaults.
-  const typeById = new Map(allTypes.map((t) => [String(t._id), t]));
   let paidAccrued = 0;
   let paidUsedFromBalances = 0;
   let medicalAccrued = 0;
@@ -201,7 +261,7 @@ export async function computeSalarySlip(
     const t = typeById.get(String(b.leaveType));
     if (!t) continue;
     if (t.isUnpaidBucket) continue;
-    const isMedical = t.code === "ML" || /medical/i.test(t.name);
+    const isMedical = isMedicalType(t);
     if (isMedical) {
       medicalAccrued += b.allocated || 0;
       medicalUsedFromBalances += b.used || 0;

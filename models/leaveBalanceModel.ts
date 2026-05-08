@@ -16,6 +16,18 @@ export interface LeaveBalanceDoc extends Document {
   leaveType: Types.ObjectId;
   allocated: number;
   used: number;
+  /**
+   * Per-user override for the LeaveType's `monthlyQuota`. Useful for
+   * mid-year joiners — e.g. an employee starting in July gets a prorated
+   * `allocated` AND a custom monthly accrual rate so the full balance
+   * doesn't unlock immediately under the cumulative-monthly-cap formula.
+   *
+   * - `null` / missing → use the LeaveType's global `monthlyQuota`
+   *   (existing behaviour).
+   * - any number       → override the global quota for this user / year /
+   *   type only. `0` means "no monthly accrual" (carry-forward only).
+   */
+  monthlyQuota?: number | null;
   notes?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -28,6 +40,7 @@ const leaveBalanceSchema = new Schema<LeaveBalanceDoc>(
     leaveType: { required: true, type: Schema.Types.ObjectId, ref: LeaveTypeModel },
     allocated: { type: Number, default: 0, min: 0 },
     used: { type: Number, default: 0, min: 0 },
+    monthlyQuota: { type: Number, default: null, min: 0 },
     notes: { type: String, default: "" },
   },
   { timestamps: true },
