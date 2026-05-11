@@ -4,8 +4,15 @@ import { SalaryConfigModel } from "../models/salaryConfigModel";
 import { SalarySlipModel } from "../models/salarySlipModel";
 import { UserModel } from "../models/userModel";
 import { UserDoc } from "../interface";
+import { UserRole } from "../enums/UserEnum";
 import { computeSalarySlip, numToIndianWords } from "../services/salaryCalculationService";
 import { syncNationalHolidays } from "../services/holidaySyncService";
+
+// Super-admins are not employees on payroll — exclude them from slip
+// generation, monthly listings, and CSV exports so HR doesn't see them
+// in payroll surfaces. The role is excluded structurally (not just via
+// UI filters) so a manual API call also can't accidentally produce a slip.
+const NOT_SUPER_ADMIN_FILTER = { role: { $ne: UserRole.SuperAdmin } };
 
 function currentYearMonth(req: Request) {
   const now = new Date();
@@ -67,7 +74,9 @@ export const generateSlipsForMonth = async (req: Request, res: Response) => {
   try {
     const { year, month } = currentYearMonth(req);
     const generatedBy = (req.user as UserDoc)._id.toString();
-    const users = await UserModel.find({ active: true }).select("_id").lean();
+    const users = await UserModel.find({ active: true, ...NOT_SUPER_ADMIN_FILTER })
+      .select("_id")
+      .lean();
     const results = await Promise.allSettled(
       users.map((u) => generateForUser(String(u._id), year, month, generatedBy)),
     );
@@ -82,6 +91,20 @@ export const generateSlipsForMonth = async (req: Request, res: Response) => {
 export const generateSlipForUser = async (req: Request, res: Response) => {
   try {
     const userId = pickUserId(req);
+    // Block direct generation for super-admins too — covers the
+    // single-user route the admin UI offers next to the bulk button.
+    const target = await UserModel.findOne({
+      _id: oid(userId),
+      ...NOT_SUPER_ADMIN_FILTER,
+    })
+      .select("_id")
+      .lean();
+    if (!target) {
+      res.status(400).json({
+        error: "Slips are not generated for super-admin accounts",
+      });
+      return;
+    }
     const { year, month } = currentYearMonth(req);
     const generatedBy = (req.user as UserDoc)._id.toString();
     const slip = await generateForUser(userId, year, month, generatedBy);
@@ -94,7 +117,18 @@ export const generateSlipForUser = async (req: Request, res: Response) => {
 export const getSlipsForMonth = async (req: Request, res: Response) => {
   try {
     const { year, month } = currentYearMonth(req);
-    const slips = await SalarySlipModel.find({ year, month })
+    // Look up super-admin user ids so any pre-existing slips for them
+    // (created before this filter was added) are hidden from the admin
+    // monthly listing too. One small distinct query, cached implicitly
+    // by Mongo's plan cache for repeat calls.
+    const superAdminIds = await UserModel.distinct("_id", {
+      role: UserRole.SuperAdmin,
+    });
+    const slips = await SalarySlipModel.find({
+      year,
+      month,
+      user: { $nin: superAdminIds },
+    })
       .sort({ employeeName: 1 })
       .lean();
     res.status(200).json({ data: slips });
@@ -136,7 +170,16 @@ export const getMySlipsList = async (req: Request, res: Response) => {
 export const getMonthlyReportCsv = async (req: Request, res: Response) => {
   try {
     const { year, month } = currentYearMonth(req);
-    const slips = await SalarySlipModel.find({ year, month })
+    // Same exclusion as the admin monthly listing — keeps super-admin
+    // rows out of the CSV export so payroll downloads are clean.
+    const superAdminIds = await UserModel.distinct("_id", {
+      role: UserRole.SuperAdmin,
+    });
+    const slips = await SalarySlipModel.find({
+      year,
+      month,
+      user: { $nin: superAdminIds },
+    })
       .sort({ employeeName: 1 })
       .lean();
 

@@ -3,6 +3,14 @@ import { LeaveBalanceModel } from "../models/leaveBalanceModel";
 import { LeaveTypeModel, LeaveTypeDoc } from "../models/leaveTypeModel";
 import { UserModel } from "../models/userModel";
 import { UserProfileModel } from "../models/userProfileModel";
+import { UserRole } from "../enums/UserEnum";
+
+// Super-admins are not employees on the books — they don't accrue or
+// consume leave. Used everywhere a user list feeds the leave-balance
+// system so we never seed / reset / sum a balance row for them.
+const NOT_SUPER_ADMIN_FILTER = {
+  role: { $ne: UserRole.SuperAdmin },
+};
 
 interface DeductArgs {
   userId: string | Types.ObjectId;
@@ -310,7 +318,9 @@ async function doJMapForUsers(userIds: Types.ObjectId[]): Promise<Map<string, Da
  */
 export async function resetBalancesForYear(year: number, opts: { force?: boolean } = {}) {
   const [users, types] = await Promise.all([
-    UserModel.find({ active: true }).select("_id").lean(),
+    UserModel.find({ active: true, ...NOT_SUPER_ADMIN_FILTER })
+      .select("_id")
+      .lean(),
     LeaveTypeModel.find({ active: true }).lean(),
   ]);
 
@@ -376,6 +386,17 @@ export async function seedBalancesForUser(
   userId: string | Types.ObjectId,
   year: number,
 ) {
+  // Skip super-admins entirely — they don't accrue or consume leave.
+  // Without this guard, activating a super-admin would create empty
+  // balance rows for them that then show up in admin dashboards.
+  const userDoc = await UserModel.findOne({
+    _id: oid(userId),
+    ...NOT_SUPER_ADMIN_FILTER,
+  })
+    .select("_id")
+    .lean();
+  if (!userDoc) return { userId: String(userId), upserted: 0 };
+
   const profileFilter = { user: oid(userId) } as FilterQuery<Record<string, unknown>>;
   const [types, profile] = await Promise.all([
     LeaveTypeModel.find({ active: true }).lean(),
