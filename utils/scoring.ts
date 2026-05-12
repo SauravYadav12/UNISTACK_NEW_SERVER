@@ -135,31 +135,59 @@ export function computeMarketingMetrics(args: {
     }
   }
 
+  // A requirement contributes AT MOST ONE count to the leaderboard regardless
+  // of how many client interviews it had. Group this marketer's client-only
+  // interviews by reqID, then classify each group:
+  //   - Completed wins over Confirm (best-status-wins).
+  //   - Stale-confirm penalty fires only when the group's best status is
+  //     Confirm; a req that converted to Completed isn't a wasted req even
+  //     if it had an earlier stale Confirm sibling.
+  // Interviews without a reqID are classified individually so legacy data
+  // still counts.
+  const clientByReq = new Map<string, InterviewForScoring[]>();
+  const orphanGroups: InterviewForScoring[][] = [];
+  for (const iv of args.interviews) {
+    if (iv.interviewWith !== CLIENT_INTERVIEW_WITH) continue;
+    if (iv.reqID) {
+      const arr = clientByReq.get(iv.reqID) || [];
+      arr.push(iv);
+      clientByReq.set(iv.reqID, arr);
+    } else {
+      orphanGroups.push([iv]);
+    }
+  }
+
   let interviewsConfirmed = 0;
   let interviewsCompleted = 0;
   let staleConfirmedInterviews = 0;
-  for (const iv of args.interviews) {
-    // Only client-facing interviews count. Vendor / IMP interviews are
-    // preparation rounds, not the deliverable that drives the leaderboard.
-    if (iv.interviewWith !== CLIENT_INTERVIEW_WITH) continue;
-    const status = iv.interviewStatus || "";
-    if (status === COMPLETED_STATUS) {
-      interviewsCompleted++;
-    } else if (status === CONFIRMED_STATUS) {
-      interviewsConfirmed++;
-      // "Wasted" confirm: scheduled date has passed by more than the
-      // grace window and the marketer still hasn't moved it to Completed
-      // (or Cancelled). Usually means a reschedule that never converted,
-      // or a client pulled the plug post-confirmation.
-      if (iv.interviewDate) {
-        const iDate = new Date(iv.interviewDate);
-        if (
-          !Number.isNaN(iDate.getTime()) &&
-          daysBetween(now, iDate) > args.staleConfirmedDays
-        ) {
-          staleConfirmedInterviews++;
+
+  const allGroups = [...clientByReq.values(), ...orphanGroups];
+  for (const ivs of allGroups) {
+    let hasCompleted = false;
+    let hasConfirm = false;
+    let hasStaleConfirm = false;
+    for (const iv of ivs) {
+      const status = iv.interviewStatus || "";
+      if (status === COMPLETED_STATUS) {
+        hasCompleted = true;
+      } else if (status === CONFIRMED_STATUS) {
+        hasConfirm = true;
+        if (iv.interviewDate) {
+          const iDate = new Date(iv.interviewDate);
+          if (
+            !Number.isNaN(iDate.getTime()) &&
+            daysBetween(now, iDate) > args.staleConfirmedDays
+          ) {
+            hasStaleConfirm = true;
+          }
         }
       }
+    }
+    if (hasCompleted) {
+      interviewsCompleted++;
+    } else if (hasConfirm) {
+      interviewsConfirmed++;
+      if (hasStaleConfirm) staleConfirmedInterviews++;
     }
   }
 
