@@ -1,6 +1,8 @@
 import { Request, Response } from "express";
 import moment from "moment";
 import { AttendanceModel, AttendanceStatus } from "../models/attendance";
+import { UserModel } from "../models/userModel";
+import { UserRole } from "../enums/UserEnum";
 import { handleAttendanceDateQueryParams } from "../utils/utils";
 
 // Sat (6) / Sun (0) are non-working days company-wide. No attendance rows
@@ -21,7 +23,15 @@ export const getAttendanceList = async (req: Request, res: Response) => {
         error,
       });
     }
-    const data = await AttendanceModel.find(query);
+    // Super Admin is a system role, not an employee — its attendance rows
+    // must not surface in any attendance listing.
+    const superAdminIds = await UserModel.distinct("_id", {
+      role: UserRole.SuperAdmin,
+    });
+    const data = await AttendanceModel.find({
+      ...query,
+      userRef: { $nin: superAdminIds },
+    });
     res.status(200).json({
       status: "success",
       data,

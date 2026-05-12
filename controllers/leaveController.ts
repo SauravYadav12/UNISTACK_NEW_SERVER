@@ -62,12 +62,35 @@ export const getLeaves = async (req: Request, res: Response) => {
       LeaveModel,
     );
     const { startIndex, query, limit } = options;
-    const leaves = await LeaveModel.find(query)
+
+    // Super Admin is a system role, not an employee — its leaves must not
+    // surface in any leave listing (All Requests, exports, etc.).
+    const superAdminIds = await UserModel.distinct("_id", {
+      role: UserRole.SuperAdmin,
+    });
+    const filteredQuery = {
+      ...query,
+      userRef: { $nin: superAdminIds },
+    };
+
+    const totalDocuments = await LeaveModel.countDocuments(filteredQuery);
+    const totalPages = Math.ceil(totalDocuments / limit);
+    const adjustedInstance = {
+      ...instance,
+      totalDocuments,
+      totalPages,
+      next:
+        startIndex + limit < totalDocuments
+          ? { page: (instance.currentPage || 1) + 1, limit }
+          : undefined,
+    };
+
+    const leaves = await LeaveModel.find(filteredQuery)
       .sort({ createdAt: -1 })
       .limit(limit)
       .skip(startIndex)
       .exec();
-    const data = { ...instance, results: leaves };
+    const data = { ...adjustedInstance, results: leaves };
 
     res.status(200).json({ data });
   } catch (error) {
