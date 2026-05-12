@@ -13,6 +13,7 @@ import {
 import {
   computeMarketingMetrics,
   computeSupportMetrics,
+  Contributors,
   MarketingMetrics,
   ReqForScoring,
   InterviewForScoring,
@@ -34,6 +35,7 @@ interface LeaderboardRow {
   };
   metrics: MarketingMetrics | SupportMetrics;
   breakdown: ScoreResult["breakdown"];
+  contributors: Contributors;
   score: number;
   rawTotal: number;
   rank: number;
@@ -132,7 +134,7 @@ export const getMarketingLeaderboard = async (
       const userInterviews = (interviews as InterviewForScoring[]).filter(
         (i) => String(i.marketingPersonRef) === uid
       );
-      const metrics = computeMarketingMetrics({
+      const { metrics, contributors } = computeMarketingMetrics({
         assignedReqs: userReqs,
         interviews: userInterviews,
         now,
@@ -150,6 +152,7 @@ export const getMarketingLeaderboard = async (
         },
         metrics,
         breakdown: scored.breakdown,
+        contributors,
         score: scored.score,
         rawTotal: scored.rawTotal,
         rank: 0, // filled below
@@ -235,7 +238,7 @@ export const getSupportLeaderboard = async (req: Request, res: Response) => {
       const userReqs = (reqs as ReqForScoring[]).filter(
         (r) => String(r.reqEnteredByRef) === uid
       );
-      const metrics = computeSupportMetrics({
+      const { metrics, contributors } = computeSupportMetrics({
         enteredReqs: userReqs,
         clientInterviewReqIDs,
         now,
@@ -251,6 +254,7 @@ export const getSupportLeaderboard = async (req: Request, res: Response) => {
         },
         metrics,
         breakdown: scored.breakdown,
+        contributors,
         score: scored.score,
         rawTotal: scored.rawTotal,
         rank: 0,

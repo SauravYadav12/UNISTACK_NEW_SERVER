@@ -28,6 +28,21 @@ export interface ScoreResult {
   breakdown: ScoreLine[];
 }
 
+/**
+ * A single record that contributed to a metric — used by the UI to show
+ * *why* a marketer/supporter earned the points and to link out to the
+ * requirement or interview. Either `reqID` or `intId` (or both, for
+ * interview contributors) is populated.
+ */
+export interface ContributorItem {
+  type: "requirement" | "interview";
+  reqID?: string;
+  intId?: string;
+}
+
+/** Map of metric key (matches ScoreLine.key) → contributing records. */
+export type Contributors = Record<string, ContributorItem[]>;
+
 function round2(n: number): number {
   if (!Number.isFinite(n)) return 0;
   return Math.round(n * 100) / 100;
@@ -113,15 +128,21 @@ export function computeMarketingMetrics(args: {
   /** Days past `interviewDate` before a still-"Interview Confirm" row is
    *  treated as a wasted (reschedule / no-show / denied) interview. */
   staleConfirmedDays: number;
-}): MarketingMetrics {
+}): { metrics: MarketingMetrics; contributors: Contributors } {
   const now = args.now ?? new Date();
   let submissions = 0;
   let staleSubmissions = 0;
   let unworkedRequirements = 0;
+  const submissionsContrib: ContributorItem[] = [];
+  const staleSubmissionsContrib: ContributorItem[] = [];
+  const unworkedRequirementsContrib: ContributorItem[] = [];
 
   for (const r of args.assignedReqs) {
     const status = r.reqStatus || "";
-    if (SUBMITTED_OR_BEYOND.has(status)) submissions++;
+    if (SUBMITTED_OR_BEYOND.has(status)) {
+      submissions++;
+      if (r.reqID) submissionsContrib.push({ type: "requirement", reqID: r.reqID });
+    }
 
     const updated = r.updatedAt ? new Date(r.updatedAt) : null;
     if (!updated) continue;
@@ -129,9 +150,11 @@ export function computeMarketingMetrics(args: {
 
     if (status === "Submitted" && ageDays > args.staleSubmissionDays) {
       staleSubmissions++;
+      if (r.reqID) staleSubmissionsContrib.push({ type: "requirement", reqID: r.reqID });
     }
     if (status === "New Working" && ageDays > args.unworkedReqDays) {
       unworkedRequirements++;
+      if (r.reqID) unworkedRequirementsContrib.push({ type: "requirement", reqID: r.reqID });
     }
   }
 
@@ -160,18 +183,26 @@ export function computeMarketingMetrics(args: {
   let interviewsConfirmed = 0;
   let interviewsCompleted = 0;
   let staleConfirmedInterviews = 0;
+  const interviewsConfirmedContrib: ContributorItem[] = [];
+  const interviewsCompletedContrib: ContributorItem[] = [];
+  const staleConfirmedContrib: ContributorItem[] = [];
 
   const allGroups = [...clientByReq.values(), ...orphanGroups];
   for (const ivs of allGroups) {
     let hasCompleted = false;
     let hasConfirm = false;
     let hasStaleConfirm = false;
+    const completedIvs: InterviewForScoring[] = [];
+    const confirmIvs: InterviewForScoring[] = [];
+    const staleConfirmIvs: InterviewForScoring[] = [];
     for (const iv of ivs) {
       const status = iv.interviewStatus || "";
       if (status === COMPLETED_STATUS) {
         hasCompleted = true;
+        completedIvs.push(iv);
       } else if (status === CONFIRMED_STATUS) {
         hasConfirm = true;
+        confirmIvs.push(iv);
         if (iv.interviewDate) {
           const iDate = new Date(iv.interviewDate);
           if (
@@ -179,15 +210,39 @@ export function computeMarketingMetrics(args: {
             daysBetween(now, iDate) > args.staleConfirmedDays
           ) {
             hasStaleConfirm = true;
+            staleConfirmIvs.push(iv);
           }
         }
       }
     }
     if (hasCompleted) {
       interviewsCompleted++;
+      for (const iv of completedIvs) {
+        interviewsCompletedContrib.push({
+          type: "interview",
+          reqID: iv.reqID,
+          intId: iv.intId,
+        });
+      }
     } else if (hasConfirm) {
       interviewsConfirmed++;
-      if (hasStaleConfirm) staleConfirmedInterviews++;
+      for (const iv of confirmIvs) {
+        interviewsConfirmedContrib.push({
+          type: "interview",
+          reqID: iv.reqID,
+          intId: iv.intId,
+        });
+      }
+      if (hasStaleConfirm) {
+        staleConfirmedInterviews++;
+        for (const iv of staleConfirmIvs) {
+          staleConfirmedContrib.push({
+            type: "interview",
+            reqID: iv.reqID,
+            intId: iv.intId,
+          });
+        }
+      }
     }
   }
 
@@ -197,13 +252,23 @@ export function computeMarketingMetrics(args: {
   );
 
   return {
-    submissions,
-    interviewsConfirmed,
-    interviewsCompleted,
-    staleConfirmedInterviews,
-    staleSubmissions,
-    unworkedRequirements,
-    conversionPct,
+    metrics: {
+      submissions,
+      interviewsConfirmed,
+      interviewsCompleted,
+      staleConfirmedInterviews,
+      staleSubmissions,
+      unworkedRequirements,
+      conversionPct,
+    },
+    contributors: {
+      submissions: submissionsContrib,
+      interviewsConfirmed: interviewsConfirmedContrib,
+      interviewsCompleted: interviewsCompletedContrib,
+      staleConfirmedInterviews: staleConfirmedContrib,
+      staleSubmissions: staleSubmissionsContrib,
+      unworkedRequirements: unworkedRequirementsContrib,
+    },
   };
 }
 
@@ -313,7 +378,7 @@ export function computeSupportMetrics(args: {
   clientInterviewReqIDs?: Set<string>;
   now?: Date;
   unprogressedReqDays: number;
-}): SupportMetrics {
+}): { metrics: SupportMetrics; contributors: Contributors } {
   const now = args.now ?? new Date();
   let requirementsEntered = 0;
   let entriesReachedSubmitted = 0;
@@ -321,6 +386,12 @@ export function computeSupportMetrics(args: {
   let entriesReachedProject = 0;
   let unprogressedEntries = 0;
   let duplicatesEntered = 0;
+  const requirementsEnteredContrib: ContributorItem[] = [];
+  const entriesReachedSubmittedContrib: ContributorItem[] = [];
+  const entriesReachedInterviewedContrib: ContributorItem[] = [];
+  const entriesReachedProjectContrib: ContributorItem[] = [];
+  const unprogressedEntriesContrib: ContributorItem[] = [];
+  const duplicatesEnteredContrib: ContributorItem[] = [];
 
   // Partition parents vs children so we can roll up child statuses onto the
   // parent. Children inherit reqEnteredByRef from their parent on creation,
@@ -341,9 +412,11 @@ export function computeSupportMetrics(args: {
   for (const r of parents) {
     if (r.isDuplicate === "yes") {
       duplicatesEntered++;
+      if (r.reqID) duplicatesEnteredContrib.push({ type: "requirement", reqID: r.reqID });
       continue; // excluded from positives, same as existing reports.
     }
     requirementsEntered++;
+    if (r.reqID) requirementsEnteredContrib.push({ type: "requirement", reqID: r.reqID });
     const parentStatus = r.reqStatus || "";
     const children = (r.reqID && childrenByParent.get(r.reqID)) || [];
 
@@ -354,6 +427,7 @@ export function computeSupportMetrics(args: {
 
     if (SUBMITTED_OR_BEYOND.has(parentStatus) || anyChildStatus(SUBMITTED_OR_BEYOND)) {
       entriesReachedSubmitted++;
+      if (r.reqID) entriesReachedSubmittedContrib.push({ type: "requirement", reqID: r.reqID });
     }
     if (
       INTERVIEWED_OR_BEYOND.has(parentStatus) ||
@@ -370,6 +444,7 @@ export function computeSupportMetrics(args: {
         children.some((c) => c.reqID && gate.has(c.reqID));
       if (passesClientGate) {
         entriesReachedInterviewed++;
+        if (r.reqID) entriesReachedInterviewedContrib.push({ type: "requirement", reqID: r.reqID });
       }
     }
     if (
@@ -377,6 +452,7 @@ export function computeSupportMetrics(args: {
       anyChildStatus(PROJECT_STAGE_STATUSES)
     ) {
       entriesReachedProject++;
+      if (r.reqID) entriesReachedProjectContrib.push({ type: "requirement", reqID: r.reqID });
     }
 
     // Unprogressed penalty: parent is "still stuck" only when it has no
@@ -386,17 +462,28 @@ export function computeSupportMetrics(args: {
       const updated = r.updatedAt ? new Date(r.updatedAt) : null;
       if (updated && daysBetween(now, updated) > args.unprogressedReqDays) {
         unprogressedEntries++;
+        if (r.reqID) unprogressedEntriesContrib.push({ type: "requirement", reqID: r.reqID });
       }
     }
   }
 
   return {
-    requirementsEntered,
-    entriesReachedSubmitted,
-    entriesReachedInterviewed,
-    entriesReachedProject,
-    unprogressedEntries,
-    duplicatesEntered,
+    metrics: {
+      requirementsEntered,
+      entriesReachedSubmitted,
+      entriesReachedInterviewed,
+      entriesReachedProject,
+      unprogressedEntries,
+      duplicatesEntered,
+    },
+    contributors: {
+      requirementsEntered: requirementsEnteredContrib,
+      entriesReachedSubmitted: entriesReachedSubmittedContrib,
+      entriesReachedInterviewed: entriesReachedInterviewedContrib,
+      entriesReachedProject: entriesReachedProjectContrib,
+      unprogressedEntries: unprogressedEntriesContrib,
+      duplicatesEntered: duplicatesEnteredContrib,
+    },
   };
 }
 
