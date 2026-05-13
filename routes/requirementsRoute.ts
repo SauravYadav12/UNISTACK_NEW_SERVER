@@ -11,6 +11,7 @@ import {
   assignMarketers,
   unassignMarketer,
   searchRequirementByReqID,
+  getPipelineCounts,
 } from "../controllers/requirementController";
 const requirementRoute = express.Router();
 import passport from "passport";
@@ -50,6 +51,15 @@ requirementRoute.get(
   passport.authenticate('jwt', { session: false }),
   requirementsCounts
 )
+
+// Aggregated pipeline-tile counts — one request returning every count the
+// `PipelineSnapshot` widget needs (replaces ~10 separate `reqStatus=...`
+// list calls from the client).
+requirementRoute.get(
+  '/pipeline-counts',
+  passport.authenticate('jwt', { session: false }),
+  getPipelineCounts
+);
 
 // ── Multi-assign ────────────────────────────────────────────────────────
 requirementRoute.post(

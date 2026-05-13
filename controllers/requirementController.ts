@@ -643,6 +643,89 @@ export const requirementsCounts = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * GET /requirements/pipeline-counts?archive=false
+ *
+ * Returns every count the PipelineSnapshot widget needs in a single MongoDB
+ * `$facet` round-trip. Replaces ~10 separate `get-requirements?reqStatus=X
+ * &page=1&limit=1` calls the client used to make per status tile — a 90%
+ * reduction in calls per pipeline render, and a single DB round-trip
+ * server-side regardless of how many statuses we add.
+ *
+ * Response shape:
+ *   { all, allAssigned, byStatus: { "New Working": N, ... } }
+ *
+ *   - `all`          → top-level documents (parents + legacy standalones)
+ *                       i.e. the same set the grid shows with no filter.
+ *   - `allAssigned`  → child documents (per-marketer assignments).
+ *   - `byStatus`     → per-status counts over *all* documents (parents +
+ *                       children combined), to match what each status tile
+ *                       does today via `reqStatus=X` (which has no
+ *                       parent/child filter).
+ */
+export const getPipelineCounts = async (req: Request, res: Response) => {
+  try {
+    const archive = String(req.query.archive || "").toLowerCase() === "true";
+    const Model = archive ? ArchiveRequirement : RequirementModel;
+
+    const STATUSES = [
+      "New Working",
+      "Submission in progress",
+      "Submitted",
+      "Interviewed",
+      "Project Active",
+      "Project Inactive",
+      "Cancelled",
+    ];
+
+    // One aggregation, one DB round-trip. `$facet` runs each branch in
+    // parallel against the same input set so the planner can share work
+    // where possible.
+    const facets: Record<string, unknown[]> = {
+      all: [
+        {
+          $match: {
+            $or: [
+              { parentReqID: { $exists: false } },
+              { parentReqID: null },
+              { parentReqID: "" },
+            ],
+          },
+        },
+        { $count: "n" },
+      ],
+      allAssigned: [
+        { $match: { parentReqID: { $exists: true, $ne: "" } } },
+        { $count: "n" },
+      ],
+    };
+    for (const s of STATUSES) {
+      facets[s] = [{ $match: { reqStatus: s } }, { $count: "n" }];
+    }
+
+    const [result] = await Model.aggregate([{ $facet: facets }]);
+    const pick = (key: string): number =>
+      ((result?.[key] as Array<{ n?: number }> | undefined)?.[0]?.n) || 0;
+
+    const byStatus: Record<string, number> = {};
+    for (const s of STATUSES) byStatus[s] = pick(s);
+
+    res.status(200).json({
+      status: "success",
+      data: {
+        all: pick("all"),
+        allAssigned: pick("allAssigned"),
+        byStatus,
+      },
+    });
+  } catch (error) {
+    res.status(400).json({
+      status: "failed",
+      error: getErrorMessage(error),
+    });
+  }
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Multi-assign: spawn one child requirement per marketer.
 // Fields that describe the job (client, JD, tech, rate, etc.) are cloned from
