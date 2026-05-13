@@ -11,6 +11,7 @@ import moment from "moment";
 import { AttendanceStatus } from "../models/attendance";
 import { handleMarkAttendance } from "./attendanceController";
 import ENV_VARS from "../config/env.config";
+import { emitNotification } from "../services/notificationService";
 import {
   getBalance,
   incrementUsed,
@@ -167,6 +168,26 @@ export const createLeave = async (req: Request, res: Response) => {
     const { messageId } = await sendMail(mailOptions);
     data.emailRefIds = [...(data.emailRefIds || []), messageId];
     await data.save();
+
+    // Event 10 — ping HR + Super Admins that a leave request needs review.
+    // Super-admins are included so leadership sees every leave application
+    // regardless of which HR member processes it (per product requirement).
+    const reviewerIds = await UserModel.distinct("_id", {
+      role: { $in: [UserRole.Hr, UserRole.SuperAdmin] },
+      active: true,
+    });
+    void emitNotification({
+      recipients: reviewerIds,
+      type: "LEAVE_REQUESTED",
+      title: `Leave request from ${user.firstName || user.email}`,
+      body: `${user.firstName || ""} ${user.lastName || ""}`.trim() +
+        ` requested leave: ${data.startDate} → ${data.endDate}`,
+      link: { kind: "leave", leaveId: String(data._id) },
+      actor: {
+        _id: user._id,
+        name: `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.email,
+      },
+    });
 
     res.status(201).json({ data });
   } catch (error) {
@@ -354,6 +375,34 @@ export const updateLeave = async (req: Request, res: Response) => {
         await applyBalanceEffects(updatedLeave);
         markAttendanceForLeave(updatedLeave.toObject<ILeave>());
       }
+
+      // Event 11 — notify the employee that their leave got a decision.
+      // Super-admins are also pinged so leadership keeps the full audit trail
+      // of leave decisions (the actor is auto-excluded by the service so a
+      // super-admin who took the action doesn't ping themselves).
+      const statusWord =
+        updatedLeave.status === LeaveStatus.Approved ? "approved" : "rejected";
+      const superAdminIds = await UserModel.distinct("_id", {
+        role: UserRole.SuperAdmin,
+        active: true,
+      });
+      void emitNotification({
+        recipients: [existingLeave.userRef, ...superAdminIds],
+        type:
+          updatedLeave.status === LeaveStatus.Approved
+            ? "LEAVE_APPROVED"
+            : "LEAVE_REJECTED",
+        title: `Leave ${statusWord} for ${
+          (await UserModel.findById(existingLeave.userRef).select("firstName email").lean())
+            ?.firstName || "employee"
+        }`,
+        body: `${updatedLeave.startDate} → ${updatedLeave.endDate} — ${statusWord} by ${me.firstName || me.email}.`,
+        link: { kind: "leave", leaveId: String(updatedLeave._id) },
+        actor: {
+          _id: me._id,
+          name: `${me.firstName || ""} ${me.lastName || ""}`.trim() || me.email,
+        },
+      });
     }
 
     res.status(200).json({ data: updatedLeave });

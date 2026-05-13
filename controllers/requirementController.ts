@@ -17,6 +17,8 @@ import { InterviewModel } from "../models/interviewModel";
 import { ProjectModel } from "../models/projectModel";
 import RequirementLogModel from "../models/requirement.log.model";
 import { ArchiveRequirement } from "../db/archiveInstance";
+import { emitNotification } from "../services/notificationService";
+import { UserDoc } from "../models/userModel";
 import {
   extractRequirementFromContent,
   RequirementExtractionValidationError,
@@ -288,11 +290,39 @@ export const updateRequirement = async (req: Request, res: Response) => {
 
     const nonArrayUpdates = { ...req.body };
 
+    // Capture the previous status so we can detect a transition to Submitted
+    // and notify the support person who entered the requirement.
+    const before = await RequirementModel.findById(req.params.id).lean();
     const updatedReq = await RequirementModel.findByIdAndUpdate(
       req.params.id,
       { ...nonArrayUpdates, ...updateOps },
       { new: true },
     );
+
+    // Event 3 — manual status change to Submitted (the auto-sync path uses
+    // syncRequirementStatus.ts which handles its own emit for events 4-5).
+    if (
+      updatedReq &&
+      before &&
+      before.reqStatus !== "Submitted" &&
+      updatedReq.reqStatus === "Submitted" &&
+      updatedReq.reqEnteredByRef
+    ) {
+      const actor = req.user as UserDoc | undefined;
+      void emitNotification({
+        recipients: [updatedReq.reqEnteredByRef],
+        type: "REQUIREMENT_SUBMITTED",
+        title: `Requirement ${updatedReq.reqID} submitted`,
+        body: `${actor?.firstName || "Someone"} moved ${updatedReq.reqID} to Submitted.`,
+        link: { kind: "requirement", reqID: updatedReq.reqID },
+        actor: actor
+          ? {
+              _id: actor._id,
+              name: `${actor.firstName || ""} ${actor.lastName || ""}`.trim() || actor.email,
+            }
+          : undefined,
+      });
+    }
 
     res.status(200).json({
       status: "success",
@@ -724,6 +754,34 @@ export const assignMarketers = async (req: Request, res: Response) => {
       created.push(doc.toObject());
     }
 
+    // Event 1 — notify each newly-assigned marketer. Multiple assignments in
+    // one request fan out to N notifications in one DB round-trip via the
+    // service's `insertMany`. The actor (the assigner) is auto-excluded so
+    // they don't ping themselves when self-assigning.
+    if (created.length > 0) {
+      const actor = req.user as UserDoc | undefined;
+      void emitNotification({
+        recipients: created
+          .map((c) => c.assignedToRef as unknown)
+          .filter(Boolean) as Array<string>,
+        type: "REQUIREMENT_ASSIGNED",
+        title: `New requirement assigned: ${parent.reqID}`,
+        body: `${actor?.firstName || "Someone"} assigned ${parent.reqID} (${parent.jobTitle || "—"}) to you.`,
+        link: {
+          kind: "requirement",
+          // We send the parent reqID — the assignee's drawer can drill into
+          // their own child via that page's existing assignment view.
+          reqID: parent.reqID,
+        },
+        actor: actor
+          ? {
+              _id: actor._id,
+              name: `${actor.firstName || ""} ${actor.lastName || ""}`.trim() || actor.email,
+            }
+          : undefined,
+      });
+    }
+
     res.status(200).json({
       status: "success",
       data: created,
@@ -765,6 +823,28 @@ export const unassignMarketer = async (req: Request, res: Response) => {
     }
 
     await RequirementModel.findByIdAndDelete(id);
+
+    // Event 2 — let the (now-former) assignee know.
+    if (child.assignedToRef) {
+      const actor = req.user as UserDoc | undefined;
+      void emitNotification({
+        recipients: [child.assignedToRef],
+        type: "REQUIREMENT_UNASSIGNED",
+        title: `Requirement ${child.reqID} unassigned`,
+        body: `${actor?.firstName || "An admin"} removed your assignment on ${child.reqID}.`,
+        link: {
+          kind: "requirement",
+          reqID: child.parentReqID || child.reqID,
+        },
+        actor: actor
+          ? {
+              _id: actor._id,
+              name: `${actor.firstName || ""} ${actor.lastName || ""}`.trim() || actor.email,
+            }
+          : undefined,
+      });
+    }
+
     res.status(200).json({ status: "success", message: "Assignment removed" });
   } catch (error) {
     console.error("unassignMarketer error:", error);

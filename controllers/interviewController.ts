@@ -8,6 +8,44 @@ import {
   searchableFields,
 } from "../utils/searchStringOperation";
 import { syncReqStatusFromInterview } from "../utils/syncRequirementStatus";
+import { emitNotification } from "../services/notificationService";
+import { UserDoc, UserModel } from "../models/userModel";
+import { UserRole } from "../enums/UserEnum";
+
+/**
+ * Resolve the support person who entered the requirement linked to an
+ * interview. Walks parent if needed so a child-bound interview still
+ * notifies the support owner. Returns null if there's no link.
+ */
+async function resolveReqOwners(reqID?: string | null): Promise<{
+  reqEnteredByRef?: unknown;
+  parentReqID: string;
+} | null> {
+  if (!reqID) return null;
+  const r = await RequirementModel.findOne({ reqID })
+    .select("reqID parentReqID reqEnteredByRef")
+    .lean();
+  if (!r) return null;
+  if (r.parentReqID) {
+    const parent = await RequirementModel.findOne({ reqID: r.parentReqID })
+      .select("reqID reqEnteredByRef")
+      .lean();
+    return {
+      reqEnteredByRef: parent?.reqEnteredByRef ?? r.reqEnteredByRef,
+      parentReqID: r.parentReqID,
+    };
+  }
+  return { reqEnteredByRef: r.reqEnteredByRef, parentReqID: r.reqID };
+}
+
+function actorPayload(req: Request) {
+  const u = req.user as UserDoc | undefined;
+  if (!u) return undefined;
+  return {
+    _id: u._id,
+    name: `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.email,
+  };
+}
 
 export const getAllInterviews = async (req: Request, res: Response) => {
   try {
@@ -113,6 +151,26 @@ export const createInterview = async (req: Request, res: Response) => {
       intResult: interview.intResult,
       updatedBy: interview.updatedBy,
     });
+
+    // Event 6 — confirm to the marketer + ping the support owner that an
+    // interview was booked on their requirement. The actor is excluded by
+    // default, so if the marketer booked it themselves they don't ping
+    // themselves; but the support owner still gets it.
+    const owners = await resolveReqOwners(interview.reqID);
+    void emitNotification({
+      recipients: [
+        interview.marketingPersonRef,
+        owners?.reqEnteredByRef,
+      ].filter(Boolean) as Array<unknown> as Array<string>,
+      type: "INTERVIEW_CREATED",
+      title: `Interview ${interview.intId} booked${
+        interview.interviewWith ? ` (${interview.interviewWith})` : ""
+      }`,
+      body: `Interview booked on ${interview.reqID}.`,
+      link: { kind: "interview", intId: interview.intId, reqID: interview.reqID },
+      actor: actorPayload(req),
+    });
+
     res.status(200).json({
       status: "success",
       data: interview,
@@ -128,6 +186,8 @@ export const createInterview = async (req: Request, res: Response) => {
 
 export const updateInterview = async (req: Request, res: Response) => {
   try {
+    // Capture the previous state so we can detect transitions for events 7-9.
+    const before = await InterviewModel.findById(req.params.id).lean();
     const data = await InterviewModel.findByIdAndUpdate(
       req.params.id,
       req.body,
@@ -148,6 +208,63 @@ export const updateInterview = async (req: Request, res: Response) => {
       intResult: data.intResult,
       updatedBy: data.updatedBy,
     });
+
+    // Events 7-9 — only fire on actual transitions. The status/result emit
+    // is gated to client-facing interviews (matches the performance rules)
+    // so vendor / IMP prep rounds don't spam the bell.
+    if (before && data.interviewWith === "Client") {
+      const owners = await resolveReqOwners(data.reqID);
+      const baseRecipients = [
+        data.marketingPersonRef,
+        owners?.reqEnteredByRef,
+      ].filter(Boolean) as Array<unknown> as Array<string>;
+
+      // Event 7 — Confirm.
+      if (
+        before.interviewStatus !== "Interview Confirm" &&
+        data.interviewStatus === "Interview Confirm"
+      ) {
+        void emitNotification({
+          recipients: baseRecipients,
+          type: "INTERVIEW_CONFIRMED",
+          title: `Interview ${data.intId} confirmed`,
+          body: `${data.intId} (${data.reqID}) is now Interview Confirm.`,
+          link: { kind: "interview", intId: data.intId, reqID: data.reqID },
+          actor: actorPayload(req),
+        });
+      }
+
+      // Event 8 — Completed.
+      if (
+        before.interviewStatus !== "Interview Completed" &&
+        data.interviewStatus === "Interview Completed"
+      ) {
+        void emitNotification({
+          recipients: baseRecipients,
+          type: "INTERVIEW_COMPLETED",
+          title: `Interview ${data.intId} completed`,
+          body: `${data.intId} (${data.reqID}) marked Interview Completed.`,
+          link: { kind: "interview", intId: data.intId, reqID: data.reqID },
+          actor: actorPayload(req),
+        });
+      }
+
+      // Event 9 — Offer (super-admins also get pinged, deal closed).
+      if (before.intResult !== "Offer" && data.intResult === "Offer") {
+        const superAdminIds = await UserModel.distinct("_id", {
+          role: UserRole.SuperAdmin,
+        });
+        void emitNotification({
+          recipients: [...baseRecipients, ...superAdminIds],
+          type: "INTERVIEW_OFFER",
+          title: `Offer on ${data.intId}!`,
+          body: `${data.intId} (${data.reqID}) returned an Offer result.`,
+          link: { kind: "interview", intId: data.intId, reqID: data.reqID },
+          actor: actorPayload(req),
+        });
+      }
+    }
+
     res.status(200).json({
       status: "success",
       data: data,

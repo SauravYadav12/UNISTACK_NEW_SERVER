@@ -43,8 +43,11 @@ import { timesheetApprovalRoute } from "./routes/timesheetApprovalRoute";
 import { invoiceRoute } from "./routes/invoiceRoute";
 import { invoiceEmailSettingsRoute } from "./routes/invoiceEmailSettingsRoute";
 import { performanceRoute } from "./routes/performanceRoute";
+import { notificationRoute } from "./routes/notificationRoute";
 import { initInvoiceDueScheduler } from "./services/invoiceDueScheduler";
 import { initLeaveBalanceSystem } from "./services/leaveBalanceScheduler";
+import { initPerformanceWarningScheduler } from "./services/performanceWarningScheduler";
+import { initInterviewReminderScheduler } from "./services/interviewReminderScheduler";
 import initPassport from "./config/passport";
 import ENV_VARS from "./config/env.config";
 const app = express();
@@ -80,6 +83,8 @@ mongoose
     initLeaveBalanceSystem();
     initHolidayNoticeScheduler();
     initInvoiceDueScheduler();
+    initPerformanceWarningScheduler();
+    initInterviewReminderScheduler();
   }).catch((err) => {
     console.error("DB connection error:", err);
   });
@@ -111,6 +116,7 @@ app.use("/timesheet-approvals", timesheetApprovalRoute);
 app.use("/invoices", invoiceRoute);
 app.use("/invoice-email-settings", invoiceEmailSettingsRoute);
 app.use("/performance", performanceRoute);
+app.use("/notifications", notificationRoute);
 
 //PORT
 const port = ENV_VARS.PORT || 5000;

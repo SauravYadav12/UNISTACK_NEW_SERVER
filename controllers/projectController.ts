@@ -3,12 +3,15 @@ import { Types, UpdateQuery } from "mongoose";
 import { ProjectModel, ProjectDoc } from "../models/projectModel";
 import { RequirementModel } from "../models/requirementModel";
 import { OrganizationModel } from "../models/organizationModel";
+import { UserModel, UserDoc } from "../models/userModel";
 import { paginationInstance } from "../utils/pagination";
 import { getErrorMessage, sequenceId } from "../utils/utils";
 import {
   handleSearchString,
   searchableFields,
 } from "../utils/searchStringOperation";
+import { emitNotification } from "../services/notificationService";
+import { UserRole } from "../enums/UserEnum";
 
 // Fields copied verbatim from Requirement → Project at creation time.
 // After this snapshot, later edits to the Requirement do NOT mutate the
@@ -240,6 +243,38 @@ export const createProjectFromRequirement = async (
       createdBy: createdBy || undefined,
     });
 
+    // PROJECT_CREATED — notify the marketer who owned the requirement, the
+    // support person who entered it, and every super-admin. The actor
+    // (whoever clicked Create Project) is auto-excluded by the service.
+    {
+      const actor = req.user as UserDoc | undefined;
+      const superAdminIds = await UserModel.distinct("_id", {
+        role: UserRole.SuperAdmin,
+        active: true,
+      });
+      void emitNotification({
+        recipients: [
+          requirement.assignedToRef,
+          requirement.reqEnteredByRef,
+          ...superAdminIds,
+        ] as Array<unknown> as Array<string>,
+        type: "PROJECT_CREATED",
+        title: `Project ${project.projectId} created`,
+        body: `${actor?.firstName || "Someone"} converted ${reqID} (${
+          requirement.jobTitle || project.consultant || "—"
+        }) into project ${project.projectId}.`,
+        link: { kind: "project", projectId: project.projectId },
+        actor: actor
+          ? {
+              _id: actor._id,
+              name:
+                `${actor.firstName || ""} ${actor.lastName || ""}`.trim() ||
+                actor.email,
+            }
+          : undefined,
+      });
+    }
+
     // Flip the requirement status. We don't hard-fail if this step errors —
     // the project is the source of truth from here on.
     try {
@@ -283,6 +318,9 @@ export const updateProject = async (req: Request, res: Response) => {
       if (FROZEN.has(k)) delete body[k];
     }
 
+    // Capture the previous state so we can detect a real status transition
+    // (and avoid emitting a notification when the admin just edits dates etc).
+    const before = await ProjectModel.findById(req.params.id).lean();
     const updated = await ProjectModel.findByIdAndUpdate(
       req.params.id,
       body,
@@ -292,6 +330,42 @@ export const updateProject = async (req: Request, res: Response) => {
       res.status(404).json({ status: "failed", message: "Project not found" });
       return;
     }
+
+    // PROJECT_STATUS_CHANGED — only when the status actually moved. Recipients:
+    // the requirement's marketer + support owner + super-admins so leadership
+    // sees holds / terminations / endings as they happen.
+    if (before && before.status !== updated.status) {
+      const requirement = updated.reqID
+        ? await RequirementModel.findOne({ reqID: updated.reqID })
+            .select("assignedToRef reqEnteredByRef")
+            .lean()
+        : null;
+      const superAdminIds = await UserModel.distinct("_id", {
+        role: UserRole.SuperAdmin,
+        active: true,
+      });
+      const actor = req.user as UserDoc | undefined;
+      void emitNotification({
+        recipients: [
+          requirement?.assignedToRef,
+          requirement?.reqEnteredByRef,
+          ...superAdminIds,
+        ] as Array<unknown> as Array<string>,
+        type: "PROJECT_STATUS_CHANGED",
+        title: `Project ${updated.projectId} → ${updated.status}`,
+        body: `${actor?.firstName || "An admin"} moved ${updated.projectId} from ${before.status} to ${updated.status}.`,
+        link: { kind: "project", projectId: updated.projectId },
+        actor: actor
+          ? {
+              _id: actor._id,
+              name:
+                `${actor.firstName || ""} ${actor.lastName || ""}`.trim() ||
+                actor.email,
+            }
+          : undefined,
+      });
+    }
+
     res.status(200).json({ status: "success", data: updated });
   } catch (error) {
     res

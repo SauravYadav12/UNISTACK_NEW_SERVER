@@ -7,6 +7,7 @@ import { UserDoc } from "../interface";
 import { UserRole } from "../enums/UserEnum";
 import { computeSalarySlip, numToIndianWords } from "../services/salaryCalculationService";
 import { syncNationalHolidays } from "../services/holidaySyncService";
+import { emitNotification } from "../services/notificationService";
 
 // Super-admins are not employees on payroll — exclude them from slip
 // generation, monthly listings, and CSV exports so HR doesn't see them
@@ -82,6 +83,32 @@ export const generateSlipsForMonth = async (req: Request, res: Response) => {
     );
     const ok = results.filter((r) => r.status === "fulfilled").length;
     const failed = results.length - ok;
+
+    // Event 12 — ping every employee whose slip we just generated. Only those
+    // whose generation actually succeeded; failed ones get nothing.
+    const okUserIds: string[] = [];
+    results.forEach((r, i) => {
+      if (r.status === "fulfilled") okUserIds.push(String(users[i]._id));
+    });
+    if (okUserIds.length > 0) {
+      const actor = req.user as UserDoc | undefined;
+      void emitNotification({
+        recipients: okUserIds,
+        type: "SALARY_SLIP_GENERATED",
+        title: `Your payslip for ${month}/${year} is ready`,
+        body: `View and download your salary slip from the Salary page.`,
+        link: { kind: "salary", slipMonth: { year, month } },
+        actor: actor
+          ? {
+              _id: actor._id,
+              name:
+                `${actor.firstName || ""} ${actor.lastName || ""}`.trim() ||
+                actor.email,
+            }
+          : undefined,
+      });
+    }
+
     res.status(200).json({ year, month, ok, failed });
   } catch (error) {
     res.status(500).json({ error });
@@ -108,6 +135,25 @@ export const generateSlipForUser = async (req: Request, res: Response) => {
     const { year, month } = currentYearMonth(req);
     const generatedBy = (req.user as UserDoc)._id.toString();
     const slip = await generateForUser(userId, year, month, generatedBy);
+
+    // Event 12 (single-user variant).
+    const actor = req.user as UserDoc | undefined;
+    void emitNotification({
+      recipients: [userId],
+      type: "SALARY_SLIP_GENERATED",
+      title: `Your payslip for ${month}/${year} is ready`,
+      body: `View and download your salary slip from the Salary page.`,
+      link: { kind: "salary", slipMonth: { year, month } },
+      actor: actor
+        ? {
+            _id: actor._id,
+            name:
+              `${actor.firstName || ""} ${actor.lastName || ""}`.trim() ||
+              actor.email,
+          }
+        : undefined,
+    });
+
     res.status(200).json({ data: slip });
   } catch (error) {
     res.status(500).json({ error });

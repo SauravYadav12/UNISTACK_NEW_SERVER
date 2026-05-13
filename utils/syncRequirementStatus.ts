@@ -1,4 +1,7 @@
 import { RequirementModel } from "../models/requirementModel";
+import { UserModel } from "../models/userModel";
+import { UserRole } from "../enums/UserEnum";
+import { emitNotification } from "../services/notificationService";
 
 // Requirement lifecycle (informational):
 //   New Working → Submission in progress → Submitted → Interviewed → Project Active → Project Inactive
@@ -74,6 +77,39 @@ export async function syncReqStatusFromInterview({
       { _id: requirement._id },
       { $set: { reqStatus: next, ...(updatedBy ? { updatedBy } : {}) } }
     );
+
+    // Events 4 & 5 — auto-promotion notifications. Tell the marketer who
+    // owns the requirement and the support person who entered it. For
+    // Project Active (a closed-won deal), super-admins get pinged too.
+    const recipients: Array<unknown> = [
+      requirement.assignedToRef,
+      requirement.reqEnteredByRef,
+    ].filter(Boolean);
+
+    if (next === "Project Active") {
+      const superAdminIds = await UserModel.distinct("_id", {
+        role: UserRole.SuperAdmin,
+      });
+      for (const sid of superAdminIds) recipients.push(sid);
+    }
+
+    void emitNotification({
+      recipients: recipients as Array<string>,
+      type:
+        next === "Project Active"
+          ? "REQUIREMENT_PROJECT_ACTIVE"
+          : "REQUIREMENT_INTERVIEWED",
+      title:
+        next === "Project Active"
+          ? `${requirement.reqID} won — Project Active!`
+          : `${requirement.reqID} reached Interviewed`,
+      body:
+        next === "Project Active"
+          ? `Offer accepted on ${requirement.reqID}. Auto-promoted to Project Active.`
+          : `${requirement.reqID} auto-promoted to Interviewed after a client interview was marked completed.`,
+      link: { kind: "requirement", reqID: requirement.reqID },
+      // System-driven — no explicit actor.
+    });
   } catch (err) {
     console.error("syncReqStatusFromInterview error:", err);
   }

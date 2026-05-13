@@ -7,6 +7,7 @@ import { UserModel } from "../models/userModel";
 import { InvoiceModel } from "../models/invoiceModel";
 import { buildDraftFromApproval } from "../services/invoiceService";
 import { sendTimesheetApprovalEmail } from "../services/invoiceEmailService";
+import { emitNotification } from "../services/notificationService";
 import { getErrorMessage } from "../utils/utils";
 import { UserRole } from "../enums/UserEnum";
 
@@ -200,6 +201,32 @@ export const submitForApproval = async (req: Request, res: Response) => {
       console.warn("[approval] submit email failed:", e);
     }
 
+    // Notification — fan out to every active super-admin. They review and
+    // act on the approval; the in-app bell complements the email so they
+    // don't have to hunt through Gmail.
+    const superAdminIds = await UserModel.distinct("_id", {
+      role: UserRole.SuperAdmin,
+      active: true,
+    });
+    void emitNotification({
+      recipients: superAdminIds,
+      type: "TIMESHEET_APPROVAL_REQUESTED",
+      title: `Timesheet approval requested: ${project.projectId} · ${periodMonth}`,
+      body: `${requestedByLabel} submitted ${totalHours}h for ${project.projectId} (${periodMonth}). Review and approve.`,
+      link: {
+        kind: "timesheet",
+        projectId: project.projectId,
+        approvalId: String(doc._id),
+        periodMonth,
+      },
+      actor: user
+        ? {
+            _id: user._id,
+            name: requestedByLabel,
+          }
+        : undefined,
+    });
+
     res.status(200).json({ status: "success", data: doc });
   } catch (error) {
     res.status(400).json({ status: "failed", error: getErrorMessage(error) });
@@ -246,6 +273,33 @@ export const approveApproval = async (req: Request, res: Response) => {
       return;
     }
 
+    // Notify the requester their submission was approved + the invoice was drafted.
+    if (approval.requestedBy) {
+      const actor = req.user as
+        | { _id?: Types.ObjectId; firstName?: string; lastName?: string; email?: string }
+        | undefined;
+      void emitNotification({
+        recipients: [approval.requestedBy],
+        type: "TIMESHEET_APPROVAL_APPROVED",
+        title: `Timesheet approved: ${approval.projectId} · ${approval.periodMonth}`,
+        body: `Your ${approval.periodMonth} timesheet (${approval.totalHoursAtSubmission || 0}h) was approved. Invoice draft generated.`,
+        link: {
+          kind: "timesheet",
+          projectId: approval.projectId,
+          approvalId: String(approval._id),
+          periodMonth: approval.periodMonth,
+        },
+        actor: actor
+          ? {
+              _id: actor._id,
+              name:
+                `${actor.firstName || ""} ${actor.lastName || ""}`.trim() ||
+                actor.email,
+            }
+          : undefined,
+      });
+    }
+
     res.status(200).json({
       status: "success",
       data: { approval, invoice },
@@ -277,6 +331,33 @@ export const rejectApproval = async (req: Request, res: Response) => {
     approval.rejectedAt = new Date();
     approval.rejectedBy = user?._id;
     await approval.save();
+
+    // Notify the requester their submission was rejected with the reason.
+    if (approval.requestedBy) {
+      const actor = req.user as
+        | { _id?: Types.ObjectId; firstName?: string; lastName?: string; email?: string }
+        | undefined;
+      void emitNotification({
+        recipients: [approval.requestedBy],
+        type: "TIMESHEET_APPROVAL_REJECTED",
+        title: `Timesheet rejected: ${approval.projectId} · ${approval.periodMonth}`,
+        body: `Your ${approval.periodMonth} timesheet was rejected. Reason: ${approval.rejectionReason}`,
+        link: {
+          kind: "timesheet",
+          projectId: approval.projectId,
+          approvalId: String(approval._id),
+          periodMonth: approval.periodMonth,
+        },
+        actor: actor
+          ? {
+              _id: actor._id,
+              name:
+                `${actor.firstName || ""} ${actor.lastName || ""}`.trim() ||
+                actor.email,
+            }
+          : undefined,
+      });
+    }
 
     res.status(200).json({ status: "success", data: approval });
   } catch (error) {
