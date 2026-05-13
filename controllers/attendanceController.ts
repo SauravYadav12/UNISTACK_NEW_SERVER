@@ -23,15 +23,23 @@ export const getAttendanceList = async (req: Request, res: Response) => {
         error,
       });
     }
-    // Super Admin is a system role, not an employee — its attendance rows
-    // must not surface in any attendance listing.
-    const superAdminIds = await UserModel.distinct("_id", {
-      role: UserRole.SuperAdmin,
-    });
-    const data = await AttendanceModel.find({
-      ...query,
-      userRef: { $nin: superAdminIds },
-    });
+    // Honour any `userRef` filter the caller supplied (single id or array
+    // for multi-user fetches like the team dashboard). Previously this
+    // function spread `query` and then overwrote `userRef` with the
+    // super-admin exclusion — which silently turned every per-user fetch
+    // (MyAttendance, navbar streak, etc.) into a fetch over EVERY user's
+    // attendance, ballooning the "This Week" / "Attendance %" stats into
+    // nonsense (e.g. 28 records in a 5-day week, 562% attendance).
+    const mongoQuery: Record<string, unknown> = { ...query };
+    if (mongoQuery.userRef === undefined) {
+      // No explicit caller filter — exclude super-admin rows so they
+      // don't surface in org-wide listings.
+      const superAdminIds = await UserModel.distinct("_id", {
+        role: UserRole.SuperAdmin,
+      });
+      mongoQuery.userRef = { $nin: superAdminIds };
+    }
+    const data = await AttendanceModel.find(mongoQuery);
     res.status(200).json({
       status: "success",
       data,
