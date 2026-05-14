@@ -5,6 +5,7 @@ import { UserModel } from "../models/userModel";
 import { UserRole } from "../enums/UserEnum";
 import { getWeights } from "../models/performanceWeightsModel";
 import { emitNotification } from "./notificationService";
+import { stampReqPenalty, stampInterviewPenalty } from "../utils/perfStamps";
 
 /**
  * Daily proactive-warning scheduler. Mirrors the leaveBalanceScheduler
@@ -206,8 +207,86 @@ async function runTick() {
     });
   }
 
+  // ── Penalty stamping pass ──────────────────────────────────────────────
+  // The four blocks above emit "imminent" notifications at `threshold - 2`
+  // days. This second pass uses the FULL threshold (no lead) and stamps
+  // `_perf*FiredAt` on each doc that has actually crossed the line. The
+  // stamp is permanent (the helper uses `$exists: false`) — penalty is
+  // monotonic, surviving any later remediation by the marketer / support.
+  // No additional notification fires here; the warning already went out,
+  // and the leaderboard surfaces the penalty.
+  function fullThresholdCutoff(thresholdDays: number): Date {
+    const cutoff = new Date(now.getTime());
+    cutoff.setDate(cutoff.getDate() - thresholdDays);
+    return cutoff;
+  }
+
+  // Stale-submission penalty (marketing)
+  const staleSubFireCutoff = fullThresholdCutoff(staleSubDays);
+  const staleSubFireReqs = await RequirementModel.find({
+    reqStatus: "Submitted",
+    updatedAt: { $lt: staleSubFireCutoff },
+    _perfStaleSubmissionFiredAt: { $exists: false },
+  } as Record<string, unknown>)
+    .select("_id")
+    .lean();
+  for (const r of staleSubFireReqs) {
+    void stampReqPenalty(r._id, "_perfStaleSubmissionFiredAt", now);
+  }
+
+  // Unworked-requirement penalty (marketing, per-child)
+  const unworkedFireCutoff = fullThresholdCutoff(unworkedDays);
+  const unworkedFireReqs = await RequirementModel.find({
+    reqStatus: "New Working",
+    updatedAt: { $lt: unworkedFireCutoff },
+    assignedToRef: { $exists: true },
+    parentReqID: { $exists: true, $ne: "" },
+    _perfUnworkedPenaltyFiredAt: { $exists: false },
+  } as Record<string, unknown>)
+    .select("_id")
+    .lean();
+  for (const r of unworkedFireReqs) {
+    void stampReqPenalty(r._id, "_perfUnworkedPenaltyFiredAt", now);
+  }
+
+  // Stale-confirmed-interview penalty (marketing)
+  const staleConfFireCutoff = fullThresholdCutoff(staleConfDays);
+  const staleConfFireIvs = await InterviewModel.find({
+    interviewStatus: "Interview Confirm",
+    interviewWith: "Client",
+    interviewDate: { $lt: staleConfFireCutoff },
+    _perfStaleConfirmFiredAt: { $exists: false },
+  } as Record<string, unknown>)
+    .select("_id")
+    .lean();
+  for (const i of staleConfFireIvs) {
+    void stampInterviewPenalty(i._id, "_perfStaleConfirmFiredAt", now);
+  }
+
+  // Unprogressed entry penalty (support, parent without children)
+  const unprogFireCutoff = fullThresholdCutoff(unprogressedDays);
+  const unprogFireReqs = await RequirementModel.find({
+    reqStatus: "New Working",
+    updatedAt: { $lt: unprogFireCutoff },
+    reqEnteredByRef: { $exists: true },
+    parentReqID: { $exists: false },
+    _perfUnprogressedPenaltyFiredAt: { $exists: false },
+  } as Record<string, unknown>)
+    .select("_id reqID")
+    .lean();
+  // Exclude parents that have any child assignments — those count as worked-on.
+  const fireParentIds = unprogFireReqs.map((r) => r.reqID).filter(Boolean) as string[];
+  const haveChildrenForFire = await RequirementModel.distinct("parentReqID", {
+    parentReqID: { $in: fireParentIds },
+  });
+  const haveChildrenFireSet = new Set(haveChildrenForFire.map((x) => String(x)));
+  for (const r of unprogFireReqs) {
+    if (haveChildrenFireSet.has(String(r.reqID))) continue;
+    void stampReqPenalty(r._id, "_perfUnprogressedPenaltyFiredAt", now);
+  }
+
   console.log(
-    `[perf-warning] Tick done: stale-sub=${staleSubGroups.length}, unworked=${unworkedGroups.length}, stale-conf=${staleConfGroups.length}, unprogressed=${unprogGroups.length}`,
+    `[perf-warning] Tick done: stale-sub=${staleSubGroups.length}, unworked=${unworkedGroups.length}, stale-conf=${staleConfGroups.length}, unprogressed=${unprogGroups.length}; fired stamps: stale-sub=${staleSubFireReqs.length}, unworked=${unworkedFireReqs.length}, stale-conf=${staleConfFireIvs.length}, unprog=${unprogFireReqs.length}`,
   );
 
   // Ensure the user list is healthy — warns if the tick runs with no

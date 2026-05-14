@@ -19,6 +19,7 @@ import RequirementLogModel from "../models/requirement.log.model";
 import { ArchiveRequirement } from "../db/archiveInstance";
 import { emitNotification } from "../services/notificationService";
 import { UserDoc } from "../models/userModel";
+import { stampReqStatusMilestones } from "../utils/perfStamps";
 import {
   extractRequirementFromContent,
   RequirementExtractionValidationError,
@@ -255,6 +256,10 @@ export const createRequirement = async (req: Request, res: Response) => {
       req.body.reqID = await nextParentReqID();
       try {
         const data = await RequirementModel.create(req.body);
+        // Stamp any status milestones if the new req was created already
+        // past New Working (admin pasted in a Submitted req, for example).
+        // Idempotent — no-op for the common "New Working" default.
+        void stampReqStatusMilestones(data._id, data.reqStatus);
         res.status(200).json({
           status: "success",
           data,
@@ -298,6 +303,17 @@ export const updateRequirement = async (req: Request, res: Response) => {
       { ...nonArrayUpdates, ...updateOps },
       { new: true },
     );
+
+    // Monotonic scoring: stamp any newly-reached status milestones so the
+    // point gets locked in to *this* moment. Idempotent — re-running on
+    // the same status is a no-op via the `$exists: false` guard.
+    if (
+      updatedReq &&
+      before &&
+      before.reqStatus !== updatedReq.reqStatus
+    ) {
+      void stampReqStatusMilestones(updatedReq._id, updatedReq.reqStatus);
+    }
 
     // Event 3 — manual status change to Submitted (the auto-sync path uses
     // syncRequirementStatus.ts which handles its own emit for events 4-5).

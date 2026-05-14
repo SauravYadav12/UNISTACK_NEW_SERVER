@@ -2,6 +2,7 @@ import { RequirementModel } from "../models/requirementModel";
 import { UserModel } from "../models/userModel";
 import { UserRole } from "../enums/UserEnum";
 import { emitNotification } from "../services/notificationService";
+import { stampReqStatusMilestones } from "./perfStamps";
 
 // Requirement lifecycle (informational):
 //   New Working → Submission in progress → Submitted → Interviewed → Project Active → Project Inactive
@@ -77,6 +78,11 @@ export async function syncReqStatusFromInterview({
       { _id: requirement._id },
       { $set: { reqStatus: next, ...(updatedBy ? { updatedBy } : {}) } }
     );
+
+    // Monotonic scoring: stamp the milestone we just crossed. Idempotent —
+    // re-runs of the same status are no-ops. Catches both Submitted ->
+    // Interviewed and Submitted -> Project Active forward jumps.
+    void stampReqStatusMilestones(requirement._id, next);
 
     // Events 4 & 5 — auto-promotion notifications. Tell the marketer who
     // owns the requirement and the support person who entered it. For

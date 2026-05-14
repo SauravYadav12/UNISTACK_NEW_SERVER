@@ -217,7 +217,18 @@ export async function computeLeaveSplit(args: {
 }
 
 export async function listBalancesForYear(year: number) {
-  return LeaveBalanceModel.find({ year })
+  // Exclude balances belonging to inactive employees or super-admins. We
+  // do the exclusion via a `userRef ∉ hiddenIds` filter because
+  // `LeaveBalanceModel` doesn't natively carry the user's active flag,
+  // and we don't want to filter post-populate (would still ship all rows
+  // over the wire).
+  const hiddenUserIds = await UserModel.distinct("_id", {
+    $or: [{ role: UserRole.SuperAdmin }, { active: false }],
+  });
+  return LeaveBalanceModel.find({
+    year,
+    user: { $nin: hiddenUserIds },
+  })
     .populate("leaveType")
     .populate("user", "firstName lastName email active")
     .lean();
@@ -387,10 +398,13 @@ export async function seedBalancesForUser(
   year: number,
 ) {
   // Skip super-admins entirely — they don't accrue or consume leave.
-  // Without this guard, activating a super-admin would create empty
-  // balance rows for them that then show up in admin dashboards.
+  // Skip inactive users too — they're off-boarded, so seeding new balance
+  // rows for them would re-surface them in HR dashboards. Without these
+  // guards, activating a super-admin or seeding for a terminated employee
+  // would create empty balance rows that then show up in admin dashboards.
   const userDoc = await UserModel.findOne({
     _id: oid(userId),
+    active: true,
     ...NOT_SUPER_ADMIN_FILTER,
   })
     .select("_id")

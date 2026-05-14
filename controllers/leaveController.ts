@@ -64,14 +64,17 @@ export const getLeaves = async (req: Request, res: Response) => {
     );
     const { startIndex, query, limit } = options;
 
-    // Super Admin is a system role, not an employee — its leaves must not
-    // surface in any leave listing (All Requests, exports, etc.).
-    const superAdminIds = await UserModel.distinct("_id", {
-      role: UserRole.SuperAdmin,
+    // Exclude leaves belonging to users that aren't visible in HR surfaces:
+    //   - Super Admin: system role, not an employee (never on payroll).
+    //   - Inactive employees: terminated / off-boarded — their historical
+    //     leave records stay in the DB for audit but shouldn't clutter
+    //     the live "All Requests" view or exports.
+    const hiddenUserIds = await UserModel.distinct("_id", {
+      $or: [{ role: UserRole.SuperAdmin }, { active: false }],
     });
     const filteredQuery = {
       ...query,
-      userRef: { $nin: superAdminIds },
+      userRef: { $nin: hiddenUserIds },
     };
 
     const totalDocuments = await LeaveModel.countDocuments(filteredQuery);

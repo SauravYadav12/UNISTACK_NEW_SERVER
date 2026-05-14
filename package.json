@@ -8,7 +8,8 @@
     "dev": "ts-node-dev --respawn app.ts",
     "build": "tsc && echo 'Build completed!'",
     "test": "jest --runInBand",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "migrate:perf-timestamps": "ts-node scripts/migrations/2026-05-14-backfill-perf-timestamps.ts"
   },
   "author": "",
   "license": "ISC",

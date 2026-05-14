@@ -1,10 +1,26 @@
 /**
  * Pure scoring math for Marketing + Support performance.
  *
- * Everything here is side-effect-free and Mongoose-free so the controller can
- * fetch data once, hand plain objects to these functions, and stay easy to
- * test. Each scored metric carries a `label` and `points` so the UI can show
- * the breakdown line-by-line without recomputing.
+ * Monotonic event-timestamp model: every scoring-worthy state transition
+ * stamps a `_perf*At` timestamp on the doc at the moment it happened. This
+ * file reads those timestamps and counts events whose stamp falls inside the
+ * leaderboard's date window. Result: once a point is awarded, it stays in
+ * the period it landed in — moving a req further forward, or cleaning up a
+ * stale submission later, never retroactively edits past leaderboards.
+ *
+ * The pre-monotonic code re-derived state from the doc's current fields on
+ * every read. Two consequences fixed here:
+ *   1. Confirm + Complete now stack additively (the prior best-status-wins
+ *      rule meant Complete silently replaced Confirm — a perceived "−3
+ *      deduction" the moment the interview was marked Completed).
+ *   2. Penalties are set-once on the doc by the daily cron and survive
+ *      remediation. A stale-submission penalty fired in May stays in May's
+ *      leaderboard even if the marketer fixes the req in June.
+ *
+ * Everything here is side-effect-free and Mongoose-free so the controller
+ * fetches data once, hands plain objects in, and the math stays easy to
+ * test. Each scored metric carries a `label` and `points` so the UI can
+ * render the breakdown without recomputing.
  */
 
 export interface ScoreLine {
@@ -48,21 +64,29 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+function inWindow(
+  ts: Date | string | undefined,
+  from: Date,
+  to: Date,
+): boolean {
+  if (!ts) return false;
+  const t = ts instanceof Date ? ts : new Date(ts);
+  if (Number.isNaN(t.getTime())) return false;
+  return t >= from && t <= to;
+}
+
 // ── Marketing ────────────────────────────────────────────────────────────
 
 export interface MarketingMetrics {
   submissions: number;
-  /** Currently in "Interview Confirm" — partial credit, not the finish line. */
+  /** Reached "Interview Confirm" at some point — sticks even if the
+   *  interview later progressed to Completed. Per-req cap of 1. */
   interviewsConfirmed: number;
-  /** Reached "Interview Completed" — full credit. */
+  /** Reached "Interview Completed" at some point. Independent of
+   *  Confirmed — both fire when both happened. Per-req cap of 1. */
   interviewsCompleted: number;
-  /**
-   * Confirmed interview whose scheduled date passed by more than the
-   * `staleConfirmedDays` threshold and still sits in "Interview Confirm".
-   * Signals a reschedule / client-no-show / dropped deal. Counted as a
-   * penalty on top of the (smaller) confirm credit so the net reward for
-   * an un-completed interview stays modest.
-   */
+  /** Stale-confirmed penalty fired by the daily cron (set-once,
+   *  survives remediation). Per-interview. */
   staleConfirmedInterviews: number;
   staleSubmissions: number;
   unworkedRequirements: number;
@@ -71,8 +95,10 @@ export interface MarketingMetrics {
 }
 
 /**
- * Requirement shape the function needs — keep it permissive so the caller
- * can pass lean docs from either the live or archive collection.
+ * Requirement shape the function needs — kept permissive so the caller can
+ * pass lean docs from either the live or archive collection. The new
+ * `_perf*At` fields drive the monotonic scoring; falling back to status +
+ * `updatedAt`/`createdAt` keeps pre-migration docs scoring correctly.
  */
 export interface ReqForScoring {
   _id?: unknown;
@@ -85,6 +111,16 @@ export interface ReqForScoring {
   childSuffix?: string;
   createdAt?: Date | string;
   updatedAt?: Date | string;
+  // Event timestamps — present on docs that have been written-to since
+  // the monotonic-scoring landing; backfilled for older docs from
+  // `updatedAt` by the migration script.
+  _perfSubmittedAt?: Date | string;
+  _perfInterviewedAt?: Date | string;
+  _perfProjectActiveAt?: Date | string;
+  _perfProjectInactiveAt?: Date | string;
+  _perfStaleSubmissionFiredAt?: Date | string;
+  _perfUnworkedPenaltyFiredAt?: Date | string;
+  _perfUnprogressedPenaltyFiredAt?: Date | string;
 }
 
 export interface InterviewForScoring {
@@ -93,11 +129,17 @@ export interface InterviewForScoring {
   reqID?: string;
   marketingPersonRef?: unknown;
   interviewStatus?: string;
-  /** Only "Client" interviews count toward marketing + support performance. */
+  /** Only "Client" interviews count toward marketing performance. */
   interviewWith?: string;
-  /** Scheduled interview date — used to detect stale-confirmed. */
+  /** Scheduled interview date — only used by the legacy fallback when a
+   *  client interview is in "Interview Confirm" but the cron hasn't
+   *  stamped `_perfStaleConfirmFiredAt` yet (e.g. pre-migration). */
   interviewDate?: Date | string;
   createdAt?: Date | string;
+  _perfConfirmedAt?: Date | string;
+  _perfCompletedAt?: Date | string;
+  _perfOfferAt?: Date | string;
+  _perfStaleConfirmFiredAt?: Date | string;
 }
 
 export const SUBMITTED_OR_BEYOND = new Set([
@@ -114,22 +156,16 @@ const COMPLETED_STATUS = "Interview Completed";
  *  interviews are preparation, not the deliverable. */
 const CLIENT_INTERVIEW_WITH = "Client";
 
-function daysBetween(a: Date, b: Date): number {
-  return Math.floor((a.getTime() - b.getTime()) / (1000 * 60 * 60 * 24));
-}
-
 /** Score a marketing user from their assigned requirements + interviews. */
 export function computeMarketingMetrics(args: {
   assignedReqs: ReqForScoring[];
   interviews: InterviewForScoring[];
-  now?: Date;
-  staleSubmissionDays: number;
-  unworkedReqDays: number;
-  /** Days past `interviewDate` before a still-"Interview Confirm" row is
-   *  treated as a wasted (reschedule / no-show / denied) interview. */
-  staleConfirmedDays: number;
+  /** Leaderboard window — events whose `_perf*At` falls inside count. */
+  from: Date;
+  to: Date;
 }): { metrics: MarketingMetrics; contributors: Contributors } {
-  const now = args.now ?? new Date();
+  const { from, to } = args;
+
   let submissions = 0;
   let staleSubmissions = 0;
   let unworkedRequirements = 0;
@@ -138,111 +174,134 @@ export function computeMarketingMetrics(args: {
   const unworkedRequirementsContrib: ContributorItem[] = [];
 
   for (const r of args.assignedReqs) {
-    const status = r.reqStatus || "";
-    if (SUBMITTED_OR_BEYOND.has(status)) {
+    // Submission count: event-timestamp first; legacy fallback uses status
+    // + createdAt window so docs missed by the backfill still register.
+    const submittedAt = r._perfSubmittedAt;
+    const legacySubmission =
+      !submittedAt &&
+      SUBMITTED_OR_BEYOND.has(r.reqStatus || "") &&
+      inWindow(r.createdAt, from, to);
+    if (inWindow(submittedAt, from, to) || legacySubmission) {
       submissions++;
-      if (r.reqID) submissionsContrib.push({ type: "requirement", reqID: r.reqID });
+      if (r.reqID)
+        submissionsContrib.push({ type: "requirement", reqID: r.reqID });
     }
 
-    const updated = r.updatedAt ? new Date(r.updatedAt) : null;
-    if (!updated) continue;
-    const ageDays = daysBetween(now, updated);
-
-    if (status === "Submitted" && ageDays > args.staleSubmissionDays) {
+    // Penalty counts: only count if the `_firedAt` stamp falls in the
+    // window. Recovered reqs keep the penalty in the period it fired.
+    if (inWindow(r._perfStaleSubmissionFiredAt, from, to)) {
       staleSubmissions++;
-      if (r.reqID) staleSubmissionsContrib.push({ type: "requirement", reqID: r.reqID });
+      if (r.reqID)
+        staleSubmissionsContrib.push({ type: "requirement", reqID: r.reqID });
     }
-    if (status === "New Working" && ageDays > args.unworkedReqDays) {
+    if (inWindow(r._perfUnworkedPenaltyFiredAt, from, to)) {
       unworkedRequirements++;
-      if (r.reqID) unworkedRequirementsContrib.push({ type: "requirement", reqID: r.reqID });
+      if (r.reqID)
+        unworkedRequirementsContrib.push({
+          type: "requirement",
+          reqID: r.reqID,
+        });
     }
   }
 
-  // A requirement contributes AT MOST ONE count to the leaderboard regardless
-  // of how many client interviews it had. Group this marketer's client-only
-  // interviews by reqID, then classify each group:
-  //   - Completed wins over Confirm (best-status-wins).
-  //   - Stale-confirm penalty fires only when the group's best status is
-  //     Confirm; a req that converted to Completed isn't a wasted req even
-  //     if it had an earlier stale Confirm sibling.
-  // Interviews without a reqID are classified individually so legacy data
-  // still counts.
-  const clientByReq = new Map<string, InterviewForScoring[]>();
-  const orphanGroups: InterviewForScoring[][] = [];
+  // ── Interview points: Confirm and Complete are independent counters,
+  // each capped at 1 per (marketer, req) pair. A req that went Confirm →
+  // Complete contributes both credits additively (was best-status-wins).
+  // Interviews without a reqID fall into an "orphan" bucket so legacy data
+  // still counts each interview individually.
+  const interviewsByReq = new Map<string, InterviewForScoring[]>();
+  const orphans: InterviewForScoring[] = [];
   for (const iv of args.interviews) {
     if (iv.interviewWith !== CLIENT_INTERVIEW_WITH) continue;
     if (iv.reqID) {
-      const arr = clientByReq.get(iv.reqID) || [];
+      const arr = interviewsByReq.get(iv.reqID) || [];
       arr.push(iv);
-      clientByReq.set(iv.reqID, arr);
+      interviewsByReq.set(iv.reqID, arr);
     } else {
-      orphanGroups.push([iv]);
+      orphans.push(iv);
     }
   }
 
   let interviewsConfirmed = 0;
   let interviewsCompleted = 0;
-  let staleConfirmedInterviews = 0;
   const interviewsConfirmedContrib: ContributorItem[] = [];
   const interviewsCompletedContrib: ContributorItem[] = [];
-  const staleConfirmedContrib: ContributorItem[] = [];
 
-  const allGroups = [...clientByReq.values(), ...orphanGroups];
-  for (const ivs of allGroups) {
-    let hasCompleted = false;
-    let hasConfirm = false;
-    let hasStaleConfirm = false;
-    const completedIvs: InterviewForScoring[] = [];
-    const confirmIvs: InterviewForScoring[] = [];
-    const staleConfirmIvs: InterviewForScoring[] = [];
+  function scoreInterviewGroup(ivs: InterviewForScoring[]): void {
+    let groupConfirmed = false;
+    let groupCompleted = false;
+    const confirmContribs: ContributorItem[] = [];
+    const completeContribs: ContributorItem[] = [];
     for (const iv of ivs) {
-      const status = iv.interviewStatus || "";
-      if (status === COMPLETED_STATUS) {
-        hasCompleted = true;
-        completedIvs.push(iv);
-      } else if (status === CONFIRMED_STATUS) {
-        hasConfirm = true;
-        confirmIvs.push(iv);
-        if (iv.interviewDate) {
-          const iDate = new Date(iv.interviewDate);
-          if (
-            !Number.isNaN(iDate.getTime()) &&
-            daysBetween(now, iDate) > args.staleConfirmedDays
-          ) {
-            hasStaleConfirm = true;
-            staleConfirmIvs.push(iv);
-          }
-        }
+      // Confirm fires when the doc's `_perfConfirmedAt` falls in the window.
+      // Legacy fallback: any client interview whose current status is
+      // Confirm or Completed (Complete implies prior Confirm) with
+      // `createdAt` in the window — covers pre-migration docs that the
+      // backfill missed.
+      const confirmEvent =
+        inWindow(iv._perfConfirmedAt, from, to) ||
+        (!iv._perfConfirmedAt &&
+          (iv.interviewStatus === CONFIRMED_STATUS ||
+            iv.interviewStatus === COMPLETED_STATUS) &&
+          inWindow(iv.createdAt, from, to));
+      if (confirmEvent) {
+        groupConfirmed = true;
+        confirmContribs.push({
+          type: "interview",
+          reqID: iv.reqID,
+          intId: iv.intId,
+        });
+      }
+
+      const completeEvent =
+        inWindow(iv._perfCompletedAt, from, to) ||
+        (!iv._perfCompletedAt &&
+          iv.interviewStatus === COMPLETED_STATUS &&
+          inWindow(iv.createdAt, from, to));
+      if (completeEvent) {
+        groupCompleted = true;
+        completeContribs.push({
+          type: "interview",
+          reqID: iv.reqID,
+          intId: iv.intId,
+        });
       }
     }
-    if (hasCompleted) {
-      interviewsCompleted++;
-      for (const iv of completedIvs) {
-        interviewsCompletedContrib.push({
-          type: "interview",
-          reqID: iv.reqID,
-          intId: iv.intId,
-        });
-      }
-    } else if (hasConfirm) {
+    if (groupConfirmed) {
       interviewsConfirmed++;
-      for (const iv of confirmIvs) {
-        interviewsConfirmedContrib.push({
-          type: "interview",
-          reqID: iv.reqID,
-          intId: iv.intId,
-        });
+      // Per-req cap of 1: keep only one contributor entry per group for the
+      // breakdown drawer, otherwise the UI shows N intIds for a single +3.
+      if (confirmContribs.length > 0) {
+        interviewsConfirmedContrib.push(confirmContribs[0]);
       }
-      if (hasStaleConfirm) {
-        staleConfirmedInterviews++;
-        for (const iv of staleConfirmIvs) {
-          staleConfirmedContrib.push({
-            type: "interview",
-            reqID: iv.reqID,
-            intId: iv.intId,
-          });
-        }
+    }
+    if (groupCompleted) {
+      interviewsCompleted++;
+      if (completeContribs.length > 0) {
+        interviewsCompletedContrib.push(completeContribs[0]);
       }
+    }
+  }
+
+  for (const ivs of interviewsByReq.values()) scoreInterviewGroup(ivs);
+  // Orphans are scored individually — no req to dedupe against.
+  for (const iv of orphans) scoreInterviewGroup([iv]);
+
+  // ── Stale-confirmed penalty: count interviews where the cron stamped
+  // `_perfStaleConfirmFiredAt` in the window. The stamp is set-once, so a
+  // confirm that goes stale in May and is later completed in June still
+  // contributes a penalty to May's leaderboard.
+  let staleConfirmedInterviews = 0;
+  const staleConfirmedContrib: ContributorItem[] = [];
+  for (const iv of args.interviews) {
+    if (iv.interviewWith !== CLIENT_INTERVIEW_WITH) continue;
+    if (inWindow(iv._perfStaleConfirmFiredAt, from, to)) {
+      staleConfirmedInterviews++;
+      staleConfirmedContrib.push({
+        type: "interview",
+        reqID: iv.reqID,
+        intId: iv.intId,
+      });
     }
   }
 
@@ -360,26 +419,49 @@ export interface SupportMetrics {
   duplicatesEntered: number;
 }
 
+/**
+ * Helpers — pick the most relevant timestamp for a milestone from either
+ * the parent or any of its children, with a legacy fallback. Returns the
+ * earliest stamp that's in-window, or undefined if nothing qualifies.
+ */
+function anyInWindow(
+  candidates: Array<Date | string | undefined>,
+  from: Date,
+  to: Date,
+): boolean {
+  for (const c of candidates) {
+    if (inWindow(c, from, to)) return true;
+  }
+  return false;
+}
+
 export function computeSupportMetrics(args: {
   /**
-   * ALL requirements entered by this user in the period, including duplicates
-   * AND child assignments. The function partitions internally:
+   * ALL requirements entered by this user — including duplicates AND child
+   * assignments. The function partitions internally:
    *   - duplicates are counted as penalties, excluded from positives
-   *   - children are skipped for positive counts; their status rolls up to
-   *     the parent (`parent credited if ANY child reached the milestone`).
+   *   - children are skipped for positive counts; their status timestamps
+   *     roll up to the parent ("parent credited if ANY child reached the
+   *     milestone in this window").
+   *
+   * Unlike the marketing fetch, no date filter is applied upstream — the
+   * function uses `createdAt ∈ window` for "entered" and `_perf*At ∈ window`
+   * for each milestone, so callers should pass all reqs ever entered by
+   * the user (the controller still scopes by `reqEnteredByRef`).
    */
   enteredReqs: ReqForScoring[];
   /**
    * Optional gate for "reached Interviewed" credit — only count the parent
    * if the parent or any of its children has at least one client-facing
    * interview on record. When omitted, the function falls back to the
-   * legacy status-only rollup for backward compatibility.
+   * timestamp-only rollup.
    */
   clientInterviewReqIDs?: Set<string>;
-  now?: Date;
-  unprogressedReqDays: number;
+  from: Date;
+  to: Date;
 }): { metrics: SupportMetrics; contributors: Contributors } {
-  const now = args.now ?? new Date();
+  const { from, to } = args;
+
   let requirementsEntered = 0;
   let entriesReachedSubmitted = 0;
   let entriesReachedInterviewed = 0;
@@ -393,10 +475,10 @@ export function computeSupportMetrics(args: {
   const unprogressedEntriesContrib: ContributorItem[] = [];
   const duplicatesEnteredContrib: ContributorItem[] = [];
 
-  // Partition parents vs children so we can roll up child statuses onto the
-  // parent. Children inherit reqEnteredByRef from their parent on creation,
-  // so they show up in this list — but must not be credited as independent
-  // support entries.
+  // Partition parents vs children so we can roll up child timestamps onto
+  // the parent for milestone-reached events. Children inherit
+  // `reqEnteredByRef` from their parent on creation, so they show up in
+  // this list — but must not be credited as independent support entries.
   const parents: ReqForScoring[] = [];
   const childrenByParent = new Map<string, ReqForScoring[]>();
   for (const r of args.enteredReqs) {
@@ -411,32 +493,62 @@ export function computeSupportMetrics(args: {
 
   for (const r of parents) {
     if (r.isDuplicate === "yes") {
-      duplicatesEntered++;
-      if (r.reqID) duplicatesEnteredContrib.push({ type: "requirement", reqID: r.reqID });
-      continue; // excluded from positives, same as existing reports.
+      // Duplicates: penalty counted in the period the duplicate was
+      // entered (`createdAt ∈ window`). No timestamp needed — the
+      // `isDuplicate` flag is the permanent record.
+      if (inWindow(r.createdAt, from, to)) {
+        duplicatesEntered++;
+        if (r.reqID)
+          duplicatesEnteredContrib.push({ type: "requirement", reqID: r.reqID });
+      }
+      continue;
     }
-    requirementsEntered++;
-    if (r.reqID) requirementsEnteredContrib.push({ type: "requirement", reqID: r.reqID });
-    const parentStatus = r.reqStatus || "";
+
+    // Requirements entered = req created in window.
+    if (inWindow(r.createdAt, from, to)) {
+      requirementsEntered++;
+      if (r.reqID)
+        requirementsEnteredContrib.push({ type: "requirement", reqID: r.reqID });
+    }
+
     const children = (r.reqID && childrenByParent.get(r.reqID)) || [];
-
-    // Parent credits Submitted / Interviewed if the parent itself reached it
-    // (legacy single-assign) OR any child reached it (multi-assign rollup).
-    const anyChildStatus = (set: Set<string>) =>
-      children.some((c) => set.has(c.reqStatus || ""));
-
-    if (SUBMITTED_OR_BEYOND.has(parentStatus) || anyChildStatus(SUBMITTED_OR_BEYOND)) {
-      entriesReachedSubmitted++;
-      if (r.reqID) entriesReachedSubmittedContrib.push({ type: "requirement", reqID: r.reqID });
+    const childSubmittedAts = children.map((c) => c._perfSubmittedAt);
+    const childInterviewedAts = children.map((c) => c._perfInterviewedAt);
+    const childProjectAts: Array<Date | string | undefined> = [];
+    for (const c of children) {
+      childProjectAts.push(c._perfProjectActiveAt);
+      childProjectAts.push(c._perfProjectInactiveAt);
     }
-    if (
-      INTERVIEWED_OR_BEYOND.has(parentStatus) ||
-      anyChildStatus(INTERVIEWED_OR_BEYOND)
-    ) {
-      // Optional client-interview gate: when the caller supplies the set of
-      // reqIDs that have a client-facing interview, require parent-or-any-
-      // child to be in it. Vendor-only or missing-interview progressions
-      // don't count as a real "reached Interviewed" milestone.
+
+    // Parent credits "reached Submitted" if parent OR any child has
+    // `_perfSubmittedAt` in the window. Legacy fallback retained:
+    // status-based check + createdAt window for un-backfilled docs.
+    const submittedCandidates: Array<Date | string | undefined> = [
+      r._perfSubmittedAt,
+      ...childSubmittedAts,
+    ];
+    const legacySubmitted =
+      !r._perfSubmittedAt &&
+      children.every((c) => !c._perfSubmittedAt) &&
+      (SUBMITTED_OR_BEYOND.has(r.reqStatus || "") ||
+        children.some((c) => SUBMITTED_OR_BEYOND.has(c.reqStatus || ""))) &&
+      inWindow(r.createdAt, from, to);
+    if (anyInWindow(submittedCandidates, from, to) || legacySubmitted) {
+      entriesReachedSubmitted++;
+      if (r.reqID)
+        entriesReachedSubmittedContrib.push({
+          type: "requirement",
+          reqID: r.reqID,
+        });
+    }
+
+    // Reached Interviewed — gated by client-interview presence if the
+    // caller supplied the set.
+    const interviewedCandidates: Array<Date | string | undefined> = [
+      r._perfInterviewedAt,
+      ...childInterviewedAts,
+    ];
+    if (anyInWindow(interviewedCandidates, from, to)) {
       const gate = args.clientInterviewReqIDs;
       const passesClientGate =
         !gate ||
@@ -444,26 +556,43 @@ export function computeSupportMetrics(args: {
         children.some((c) => c.reqID && gate.has(c.reqID));
       if (passesClientGate) {
         entriesReachedInterviewed++;
-        if (r.reqID) entriesReachedInterviewedContrib.push({ type: "requirement", reqID: r.reqID });
+        if (r.reqID)
+          entriesReachedInterviewedContrib.push({
+            type: "requirement",
+            reqID: r.reqID,
+          });
       }
-    }
-    if (
-      PROJECT_STAGE_STATUSES.has(parentStatus) ||
-      anyChildStatus(PROJECT_STAGE_STATUSES)
-    ) {
-      entriesReachedProject++;
-      if (r.reqID) entriesReachedProjectContrib.push({ type: "requirement", reqID: r.reqID });
     }
 
-    // Unprogressed penalty: parent is "still stuck" only when it has no
-    // child assignments AND its own status is still New Working past the
-    // threshold. A parent with any child assignment has been acted on.
-    if (children.length === 0 && parentStatus === "New Working") {
-      const updated = r.updatedAt ? new Date(r.updatedAt) : null;
-      if (updated && daysBetween(now, updated) > args.unprogressedReqDays) {
-        unprogressedEntries++;
-        if (r.reqID) unprogressedEntriesContrib.push({ type: "requirement", reqID: r.reqID });
-      }
+    // Reached Project stage — Active OR Inactive (both count). Stamps on
+    // either parent or any child are accepted.
+    if (
+      anyInWindow(
+        [r._perfProjectActiveAt, r._perfProjectInactiveAt, ...childProjectAts],
+        from,
+        to,
+      )
+    ) {
+      entriesReachedProject++;
+      if (r.reqID)
+        entriesReachedProjectContrib.push({
+          type: "requirement",
+          reqID: r.reqID,
+        });
+    }
+
+    // Unprogressed penalty: count if cron stamped `_perfUnprogressedPenaltyFiredAt`
+    // in the window. Survives later remediation.
+    if (
+      children.length === 0 &&
+      inWindow(r._perfUnprogressedPenaltyFiredAt, from, to)
+    ) {
+      unprogressedEntries++;
+      if (r.reqID)
+        unprogressedEntriesContrib.push({
+          type: "requirement",
+          reqID: r.reqID,
+        });
     }
   }
 

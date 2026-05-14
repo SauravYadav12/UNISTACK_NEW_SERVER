@@ -118,17 +118,21 @@ export const generateSlipsForMonth = async (req: Request, res: Response) => {
 export const generateSlipForUser = async (req: Request, res: Response) => {
   try {
     const userId = pickUserId(req);
-    // Block direct generation for super-admins too — covers the
-    // single-user route the admin UI offers next to the bulk button.
+    // Block direct generation for super-admins AND inactive employees —
+    // covers the single-user route the admin UI offers next to the bulk
+    // button. Bulk generation already filters both via the active-only
+    // user query in `generateSlipsForMonth`; this matches that policy
+    // for the per-user path.
     const target = await UserModel.findOne({
       _id: oid(userId),
+      active: true,
       ...NOT_SUPER_ADMIN_FILTER,
     })
       .select("_id")
       .lean();
     if (!target) {
       res.status(400).json({
-        error: "Slips are not generated for super-admin accounts",
+        error: "Slips are only generated for active, non-super-admin employees",
       });
       return;
     }
@@ -163,17 +167,18 @@ export const generateSlipForUser = async (req: Request, res: Response) => {
 export const getSlipsForMonth = async (req: Request, res: Response) => {
   try {
     const { year, month } = currentYearMonth(req);
-    // Look up super-admin user ids so any pre-existing slips for them
-    // (created before this filter was added) are hidden from the admin
-    // monthly listing too. One small distinct query, cached implicitly
-    // by Mongo's plan cache for repeat calls.
-    const superAdminIds = await UserModel.distinct("_id", {
-      role: UserRole.SuperAdmin,
+    // Hide slips belonging to users we don't want to show in HR surfaces:
+    //   - Super-admins (system role, never on payroll).
+    //   - Inactive employees (off-boarded — their historical slips stay in
+    //     the DB for audit but shouldn't show in the live monthly list).
+    // One $or-distinct keeps this to a single query.
+    const hiddenUserIds = await UserModel.distinct("_id", {
+      $or: [{ role: UserRole.SuperAdmin }, { active: false }],
     });
     const slips = await SalarySlipModel.find({
       year,
       month,
-      user: { $nin: superAdminIds },
+      user: { $nin: hiddenUserIds },
     })
       .sort({ employeeName: 1 })
       .lean();
@@ -216,15 +221,16 @@ export const getMySlipsList = async (req: Request, res: Response) => {
 export const getMonthlyReportCsv = async (req: Request, res: Response) => {
   try {
     const { year, month } = currentYearMonth(req);
-    // Same exclusion as the admin monthly listing — keeps super-admin
-    // rows out of the CSV export so payroll downloads are clean.
-    const superAdminIds = await UserModel.distinct("_id", {
-      role: UserRole.SuperAdmin,
+    // Same exclusion as the admin monthly listing — keeps super-admin AND
+    // inactive employees out of the CSV export so payroll downloads are
+    // clean and consistent with what HR sees on screen.
+    const hiddenUserIds = await UserModel.distinct("_id", {
+      $or: [{ role: UserRole.SuperAdmin }, { active: false }],
     });
     const slips = await SalarySlipModel.find({
       year,
       month,
-      user: { $nin: superAdminIds },
+      user: { $nin: hiddenUserIds },
     })
       .sort({ employeeName: 1 })
       .lean();

@@ -11,6 +11,16 @@ export interface InterviewDoc extends Omit<IInterview, '_id' | 'consultantRef' |
   candidateRef?: mongoose.Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
+  // ── Performance event timestamps (monotonic scoring) ──
+  // Only set when `interviewWith === "Client"` — vendor / IMP rounds don't
+  // count toward marketing's confirmed/completed credits. Stamped ONCE
+  // when the milestone is first crossed; never overwritten.
+  _perfConfirmedAt?: Date;
+  _perfCompletedAt?: Date;
+  _perfOfferAt?: Date;
+  // Penalty timestamp — daily scheduler sets when stale-confirm threshold
+  // is first crossed; survives later remediation.
+  _perfStaleConfirmFiredAt?: Date;
 }
 
 const interviewSchema = new mongoose.Schema<InterviewDoc>(
@@ -150,6 +160,11 @@ const interviewSchema = new mongoose.Schema<InterviewDoc>(
       type: String,
     },
     script: String,
+    // ── Performance event timestamps (see comment in InterviewDoc above) ──
+    _perfConfirmedAt: { type: Date },
+    _perfCompletedAt: { type: Date },
+    _perfOfferAt: { type: Date },
+    _perfStaleConfirmFiredAt: { type: Date },
   },
   {
     timestamps: true,

@@ -11,6 +11,7 @@ import { syncReqStatusFromInterview } from "../utils/syncRequirementStatus";
 import { emitNotification } from "../services/notificationService";
 import { UserDoc, UserModel } from "../models/userModel";
 import { UserRole } from "../enums/UserEnum";
+import { stampInterviewMilestones } from "../utils/perfStamps";
 
 /**
  * Resolve the support person who entered the requirement linked to an
@@ -145,6 +146,17 @@ export const createInterview = async (req: Request, res: Response) => {
 
     req.body.intId = await sequenceId(InterviewModel, "intId", "INT");
     const interview = await InterviewModel.create(req.body);
+
+    // Monotonic scoring: if the new interview was created already in
+    // Confirm/Complete/Offer (admin entered it post-hoc), stamp the
+    // corresponding milestone fields. No-op for the common "Scheduled"
+    // initial state.
+    void stampInterviewMilestones(interview._id, {
+      interviewWith: interview.interviewWith,
+      interviewStatus: interview.interviewStatus,
+      intResult: interview.intResult,
+    });
+
     await syncReqStatusFromInterview({
       reqID: interview.reqID,
       interviewStatus: interview.interviewStatus,
@@ -202,6 +214,15 @@ export const updateInterview = async (req: Request, res: Response) => {
       });
       return;
     }
+    // Monotonic scoring: stamp the newly-reached milestone on the
+    // interview itself. Idempotent — second update on the same status
+    // is a no-op via the `$exists: false` guard in `stampInterviewMilestones`.
+    void stampInterviewMilestones(data._id, {
+      interviewWith: data.interviewWith,
+      interviewStatus: data.interviewStatus,
+      intResult: data.intResult,
+    });
+
     await syncReqStatusFromInterview({
       reqID: data.reqID,
       interviewStatus: data.interviewStatus,

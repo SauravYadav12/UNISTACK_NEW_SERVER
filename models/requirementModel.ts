@@ -10,6 +10,22 @@ export interface RequirementDoc extends Omit<IRequirement, '_id' | 'appliedForRe
   reqEnteredByRef: mongoose.Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
+  // ── Performance event timestamps (monotonic scoring) ──
+  // Stamped ONCE when the corresponding status milestone is first crossed,
+  // never overwritten. Scoring filters leaderboard windows by these
+  // timestamps so a point awarded in May stays in May's leaderboard even
+  // if the req later moves further forward.
+  _perfSubmittedAt?: Date;
+  _perfInterviewedAt?: Date;
+  _perfProjectActiveAt?: Date;
+  _perfProjectInactiveAt?: Date;
+  // ── Penalty timestamps — set by the daily scheduler when a threshold is
+  //    first crossed. Never unset, so penalties stay locked in for the
+  //    period in which they fired even after the marketer/support
+  //    remediates.
+  _perfStaleSubmissionFiredAt?: Date;
+  _perfUnworkedPenaltyFiredAt?: Date;
+  _perfUnprogressedPenaltyFiredAt?: Date;
 }
 
 const requirementSchema = new mongoose.Schema<RequirementDoc>(
@@ -176,6 +192,14 @@ const requirementSchema = new mongoose.Schema<RequirementDoc>(
     childSuffix: {
       type: String,
     },
+    // ── Performance event timestamps (see comment in RequirementDoc above) ──
+    _perfSubmittedAt: { type: Date },
+    _perfInterviewedAt: { type: Date },
+    _perfProjectActiveAt: { type: Date },
+    _perfProjectInactiveAt: { type: Date },
+    _perfStaleSubmissionFiredAt: { type: Date },
+    _perfUnworkedPenaltyFiredAt: { type: Date },
+    _perfUnprogressedPenaltyFiredAt: { type: Date },
   },
   {
     timestamps: true,

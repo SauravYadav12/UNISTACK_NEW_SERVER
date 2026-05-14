@@ -78,6 +78,7 @@ export const getMarketingLeaderboard = async (
 
     const marketers = await UserModel.find({
       role: UserRole.Marketing,
+      active: true,
     })
       .select("firstName lastName email active")
       .lean();
@@ -91,12 +92,15 @@ export const getMarketingLeaderboard = async (
       { parentReqID: { $exists: true, $ne: "" } }
     );
 
-    // Pull every relevant req + interview in one shot; partition in memory.
-    // For the org scale this is fine (thousands, not millions).
+    // Pull every relevant req + interview owned by any marketer — no
+    // `createdAt` window filter. Scoring filters by event timestamps
+    // (`_perf*At ∈ [from, to]`) internally; a req created last year whose
+    // Complete fires this month must still surface, so we can't prune by
+    // creation date here. For the org scale this is fine (thousands, not
+    // millions).
     const [reqs, interviews] = await Promise.all([
       RequirementModel.find({
         assignedToRef: { $in: marketers.map((m) => m._id) },
-        createdAt: { $gte: from, $lte: to },
         // Keep children (they have parentReqID) and legacy standalones
         // (their reqID isn't referenced as a parentReqID by any other doc).
         // Drop parents-with-children via reqID not-in set.
@@ -108,23 +112,17 @@ export const getMarketingLeaderboard = async (
         ],
       })
         .select(
-          "reqID reqStatus assignedToRef parentReqID updatedAt createdAt"
+          "reqID reqStatus assignedToRef parentReqID updatedAt createdAt _perfSubmittedAt _perfInterviewedAt _perfProjectActiveAt _perfProjectInactiveAt _perfStaleSubmissionFiredAt _perfUnworkedPenaltyFiredAt"
         )
         .lean(),
       InterviewModel.find({
         marketingPersonRef: { $in: marketers.map((m) => m._id) },
-        createdAt: { $gte: from, $lte: to },
       })
         .select(
-          "intId reqID interviewStatus interviewWith interviewDate marketingPersonRef createdAt",
+          "intId reqID interviewStatus interviewWith interviewDate marketingPersonRef createdAt _perfConfirmedAt _perfCompletedAt _perfOfferAt _perfStaleConfirmFiredAt",
         )
         .lean(),
     ]);
-
-    const staleDays = Number(weights.STALE_SUBMISSION_DAYS) || 14;
-    const unworkedDays = Number(weights.UNWORKED_REQ_DAYS) || 7;
-    const staleConfirmedDays = Number(weights.STALE_CONFIRM_DAYS) || 14;
-    const now = new Date();
 
     const rows: LeaderboardRow[] = marketers.map((u) => {
       const uid = String(u._id);
@@ -137,10 +135,8 @@ export const getMarketingLeaderboard = async (
       const { metrics, contributors } = computeMarketingMetrics({
         assignedReqs: userReqs,
         interviews: userInterviews,
-        now,
-        staleSubmissionDays: staleDays,
-        unworkedReqDays: unworkedDays,
-        staleConfirmedDays,
+        from,
+        to,
       });
       const scored = scoreMarketing(metrics, weights);
       return {
@@ -196,6 +192,7 @@ export const getSupportLeaderboard = async (req: Request, res: Response) => {
 
     const supporters = await UserModel.find({
       role: UserRole.Support,
+      active: true,
     })
       .select("firstName lastName email active")
       .lean();
@@ -203,12 +200,14 @@ export const getSupportLeaderboard = async (req: Request, res: Response) => {
     // Intentionally fetch BOTH parents and children: the scorer partitions
     // internally so a parent is credited when any child reaches the milestone.
     // `parentReqID` and `childSuffix` must be in the select for that to work.
+    // No `createdAt` filter — scoring filters by `_perf*At ∈ [from, to]`
+    // for each milestone, so a req entered last year whose Project Active
+    // fires this month still surfaces correctly.
     const reqs = await RequirementModel.find({
       reqEnteredByRef: { $in: supporters.map((s) => s._id) },
-      createdAt: { $gte: from, $lte: to },
     })
       .select(
-        "reqID reqStatus reqEnteredByRef parentReqID childSuffix isDuplicate updatedAt createdAt"
+        "reqID reqStatus reqEnteredByRef parentReqID childSuffix isDuplicate updatedAt createdAt _perfSubmittedAt _perfInterviewedAt _perfProjectActiveAt _perfProjectInactiveAt _perfUnprogressedPenaltyFiredAt"
       )
       .lean();
 
@@ -230,9 +229,6 @@ export const getSupportLeaderboard = async (req: Request, res: Response) => {
       clientInterviews.map((i) => i.reqID as string).filter(Boolean),
     );
 
-    const unprogressedDays = Number(weights.UNPROGRESSED_REQ_DAYS) || 14;
-    const now = new Date();
-
     const rows: LeaderboardRow[] = supporters.map((u) => {
       const uid = String(u._id);
       const userReqs = (reqs as ReqForScoring[]).filter(
@@ -241,8 +237,8 @@ export const getSupportLeaderboard = async (req: Request, res: Response) => {
       const { metrics, contributors } = computeSupportMetrics({
         enteredReqs: userReqs,
         clientInterviewReqIDs,
-        now,
-        unprogressedReqDays: unprogressedDays,
+        from,
+        to,
       });
       const scored = scoreSupport(metrics, weights);
       return {
