@@ -138,3 +138,30 @@ export async function stampInterviewPenalty(
 ): Promise<void> {
   await setOnceOnInterview(interviewId, field, now);
 }
+
+/**
+ * Clear the "unworked requirement" penalty flag on a requirement.
+ *
+ * This is the ONE penalty that intentionally reverts when remediated —
+ * per product rule, it's a stagnation signal, not a permanent strike, so
+ * the moment the marketer moves a stuck "New Working" req forward, the
+ * −1 should disappear from every leaderboard window it had been counted
+ * in. Every other penalty (stale-submission, stale-confirmed, support
+ * unprogressed) stays stamped once fired and survives later remediation.
+ *
+ * Because the leaderboard math filters by `_perfUnworkedPenaltyFiredAt
+ * ∈ window`, `$unset`ing the field is sufficient — no separate update
+ * to historical leaderboards is needed.
+ */
+export async function clearReqUnworkedPenalty(
+  reqId: mongoose.Types.ObjectId | string,
+): Promise<void> {
+  try {
+    await RequirementModel.updateOne(
+      { _id: reqId, _perfUnworkedPenaltyFiredAt: { $exists: true } },
+      { $unset: { _perfUnworkedPenaltyFiredAt: 1 } },
+    );
+  } catch (e) {
+    console.error("[perf-stamp] clear unworked penalty failed:", e);
+  }
+}

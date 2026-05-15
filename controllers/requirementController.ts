@@ -19,7 +19,10 @@ import RequirementLogModel from "../models/requirement.log.model";
 import { ArchiveRequirement } from "../db/archiveInstance";
 import { emitNotification } from "../services/notificationService";
 import { UserDoc } from "../models/userModel";
-import { stampReqStatusMilestones } from "../utils/perfStamps";
+import {
+  stampReqStatusMilestones,
+  clearReqUnworkedPenalty,
+} from "../utils/perfStamps";
 import {
   extractRequirementFromContent,
   RequirementExtractionValidationError,
@@ -313,6 +316,20 @@ export const updateRequirement = async (req: Request, res: Response) => {
       before.reqStatus !== updatedReq.reqStatus
     ) {
       void stampReqStatusMilestones(updatedReq._id, updatedReq.reqStatus);
+
+      // Exception to the monotonic rule: the "unworked requirement"
+      // penalty is meant to penalise stagnation, not permanently
+      // record it. When the marketer moves the req out of "New
+      // Working" (Submitted, Cancelled, anything), clear the
+      // `_perfUnworkedPenaltyFiredAt` flag so the −1 disappears
+      // from every leaderboard window it was counted in. Per
+      // product direction — all other penalties stay sticky.
+      if (
+        before.reqStatus === "New Working" &&
+        updatedReq.reqStatus !== "New Working"
+      ) {
+        void clearReqUnworkedPenalty(updatedReq._id);
+      }
     }
 
     // Event 3 — manual status change to Submitted (the auto-sync path uses

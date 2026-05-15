@@ -17,6 +17,15 @@
  *      remediation. A stale-submission penalty fired in May stays in May's
  *      leaderboard even if the marketer fixes the req in June.
  *
+ * Exception to (2): the "unworked requirement" penalty
+ * (`_perfUnworkedPenaltyFiredAt`) is intentionally NON-monotonic. Per
+ * product rule it represents current stagnation, not a permanent strike,
+ * so the moment the marketer moves the req out of "New Working" the field
+ * is `$unset` (see `clearReqUnworkedPenalty` in `utils/perfStamps.ts`) and
+ * the −1 disappears from every leaderboard window. All other penalties
+ * (stale-submission, stale-confirmed-interview, support unprogressed)
+ * keep their stamps once fired.
+ *
  * Everything here is side-effect-free and Mongoose-free so the controller
  * fetches data once, hands plain objects in, and the math stays easy to
  * test. Each scored metric carries a `label` and `points` so the UI can
