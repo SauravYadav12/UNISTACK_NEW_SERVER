@@ -9,7 +9,8 @@
     "build": "tsc && echo 'Build completed!'",
     "test": "jest --runInBand",
     "test:watch": "jest --watch",
-    "migrate:perf-timestamps": "ts-node scripts/migrations/2026-05-14-backfill-perf-timestamps.ts"
+    "migrate:perf-timestamps": "ts-node scripts/migrations/2026-05-14-backfill-perf-timestamps.ts",
+    "migrate:reset-unworked-penalty": "ts-node scripts/migrations/2026-05-16-reset-unworked-penalty-for-worked-reqs.ts"
   },
   "author": "",
   "license": "ISC",

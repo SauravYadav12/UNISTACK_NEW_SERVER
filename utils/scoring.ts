@@ -197,13 +197,30 @@ export function computeMarketingMetrics(args: {
     }
 
     // Penalty counts: only count if the `_firedAt` stamp falls in the
-    // window. Recovered reqs keep the penalty in the period it fired.
+    // window. Recovered reqs keep the penalty in the period it fired —
+    // EXCEPT for the unworked-requirement penalty (see below).
     if (inWindow(r._perfStaleSubmissionFiredAt, from, to)) {
       staleSubmissions++;
       if (r.reqID)
         staleSubmissionsContrib.push({ type: "requirement", reqID: r.reqID });
     }
-    if (inWindow(r._perfUnworkedPenaltyFiredAt, from, to)) {
+    // Unworked-requirement penalty is intentionally non-monotonic AND
+    // gated on current status. Two reasons for the current-status gate:
+    //   1. Product rule — only reqs *currently* in "New Working" are
+    //      "stuck". A req that has been moved forward (Submitted /
+    //      Cancelled / anything) is no longer stagnating, so it should
+    //      not contribute to the penalty count regardless of when the
+    //      cron originally stamped it.
+    //   2. Defense in depth — the clear-on-remediation hook in
+    //      `updateRequirement` + `syncReqStatusFromInterview` `$unset`s
+    //      the stamp when status moves off "New Working", but any other
+    //      path that mutates `reqStatus` without going through those
+    //      sites would leave a stale stamp behind. Checking current
+    //      status here makes the rule robust to those gaps.
+    if (
+      inWindow(r._perfUnworkedPenaltyFiredAt, from, to) &&
+      (r.reqStatus || "") === "New Working"
+    ) {
       unworkedRequirements++;
       if (r.reqID)
         unworkedRequirementsContrib.push({
