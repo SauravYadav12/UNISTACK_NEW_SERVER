@@ -160,7 +160,20 @@ async function runTick() {
   );
 }
 
+// Module-level guard so a double-call (mongoose reconnect, hot-reload, an
+// errant `init()` from a second entrypoint, etc.) doesn't spin up two
+// parallel setTimeout chains both firing at 09:00 ET. Without this, the
+// DB-level unique index would catch the duplicate, but we'd still burn
+// CPU + a redundant insert attempt per cron tick.
+let initialized = false;
 export function initInterviewReminderScheduler(): void {
+  if (initialized) {
+    console.warn(
+      "[interview-reminder] init called more than once — ignoring duplicate.",
+    );
+    return;
+  }
+  initialized = true;
   scheduleNext();
 }
 

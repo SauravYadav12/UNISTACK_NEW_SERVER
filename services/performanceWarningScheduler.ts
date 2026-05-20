@@ -311,7 +311,17 @@ async function runTick() {
   }
 }
 
+// Module-level guard against double-registration (same rationale as the
+// interview reminder scheduler — see comment there).
+let initialized = false;
 export function initPerformanceWarningScheduler(): void {
+  if (initialized) {
+    console.warn(
+      "[perf-warning] init called more than once — ignoring duplicate.",
+    );
+    return;
+  }
+  initialized = true;
   scheduleNext();
 }
 

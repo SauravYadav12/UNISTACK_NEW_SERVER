@@ -112,6 +112,27 @@ NotificationSchema.index(
   { createdAt: 1 },
   { expireAfterSeconds: 60 * 60 * 24 * 15 },
 );
+// Partial unique index — makes duplicate notifications DB-impossible for
+// the cron-emitted rows that opt into deduplication via a `dedupeKey`.
+// Critical: the `partialFilterExpression` restricts the index to rows
+// where `dedupeKey` is a string, so the dominant category of notifications
+// (assign / leave / salary / interview events — none of which pass a
+// `dedupeKey`) are NEVER constrained by this index. Without the partial
+// filter, every notification would need a unique `(recipientRef, null)`
+// pair which is nonsensical and would break the system entirely.
+//
+// Combined with the read-side dedupe check in `emitNotification` (which
+// avoids the failed-insert round-trip in the common case), this is
+// belt-and-suspenders against the TOCTOU race that caused the original
+// duplicate-bell-row bug.
+NotificationSchema.index(
+  { recipientRef: 1, dedupeKey: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { dedupeKey: { $type: "string" } },
+    name: "recipientRef_1_dedupeKey_1_unique",
+  },
+);
 
 export const NotificationModel = mongoose.model<NotificationDoc>(
   "Notification",

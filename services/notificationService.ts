@@ -93,7 +93,32 @@ export async function emitNotification(args: EmitArgs): Promise<void> {
       actor: args.actor,
     }));
 
-    await NotificationModel.insertMany(docs, { ordered: false });
+    try {
+      await NotificationModel.insertMany(docs, { ordered: false });
+    } catch (err) {
+      // Race between two emit calls with the same `dedupeKey`: both pass
+      // the read-side check above, both attempt `insertMany`, and the
+      // partial unique index on `(recipientRef, dedupeKey)` rejects the
+      // late arrival with E11000. With `ordered: false`, Mongo still
+      // delivers every NON-conflicting doc — the throw collects only the
+      // duplicate-key writeErrors. Swallowing those preserves the legit
+      // inserts and makes the dedupe rule DB-enforced (the bug fix).
+      //
+      // Anything that isn't an E11000 (network blip, schema validation
+      // failure, etc.) is still genuinely an error worth logging.
+      const e = err as {
+        code?: number;
+        writeErrors?: Array<{ code?: number }>;
+      };
+      const isDupKey =
+        e?.code === 11000 ||
+        (Array.isArray(e?.writeErrors) &&
+          e.writeErrors.length > 0 &&
+          e.writeErrors.every((w) => w?.code === 11000));
+      if (!isDupKey) throw err;
+      // Dup-key on the dedupe index — by design. The earlier emit already
+      // delivered the notification to this recipient. Stay quiet.
+    }
   } catch (err) {
     // Notifications must never break business operations. Log + swallow.
     console.error("[notifications] emit failed:", err);
