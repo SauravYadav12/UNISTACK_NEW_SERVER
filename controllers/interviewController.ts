@@ -2,7 +2,8 @@ import { Request, Response } from "express";
 import { InterviewModel } from "../models/interviewModel";
 import { RequirementModel } from "../models/requirementModel";
 import { paginationInstance } from "../utils/pagination";
-import { getErrorMessage, sequenceId } from "../utils/utils";
+import { getErrorMessage, handleDateQuery, sequenceId } from "../utils/utils";
+import InterviewLogModel from "../models/interview.log.model";
 import {
   handleSearchString,
   searchableFields,
@@ -317,6 +318,81 @@ export const deleteInterview = async (req: Request, res: Response) => {
   } catch (error) {
     console.error("Error deleting interview:", error);
     res.status(500).json({
+      status: "failed",
+      error: getErrorMessage(error),
+    });
+  }
+};
+
+// ── Activity log ─────────────────────────────────────────────────────────
+//
+// Mirrors `requirementController.{getRequirementLog,createRequirementLog}`
+// exactly. The client posts an explicit log entry after a successful
+// create / update — the server doesn't auto-write logs on every mutation.
+// Supports two read modes:
+//   - `interviewRef=<id>` → logs for one interview
+//   - `reqID=<reqID>` (incl. children) → all interview logs that hang off
+//     a parent requirement or any of its children. Lets the requirement
+//     drawer show a unified per-parent interview-history view alongside
+//     its own log table.
+
+export const getInterviewLog = async (req: Request, res: Response) => {
+  try {
+    // Mode 1 — by `reqID`: aggregate every interview attached to a parent
+    // (or its children) and return all of their logs. The requirement
+    // drawer uses this to show interview activity alongside its own.
+    const reqID =
+      typeof req.query.reqID === "string" ? req.query.reqID.trim() : "";
+
+    if (reqID) {
+      // Resolve every reqID in the parent+children family.
+      const docs = await RequirementModel.find({
+        $or: [{ reqID }, { parentReqID: reqID }],
+      })
+        .select("reqID")
+        .lean();
+      const reqIDs = docs.map((d) => d.reqID).filter(Boolean) as string[];
+      if (reqIDs.length === 0) {
+        res.status(200).json({ status: "success", data: [] });
+        return;
+      }
+      // Find all interviews tied to any of those reqIDs.
+      const interviews = await InterviewModel.find({
+        reqID: { $in: reqIDs },
+      })
+        .select("_id")
+        .lean();
+      const interviewIds = interviews.map((i) => i._id);
+      if (interviewIds.length === 0) {
+        res.status(200).json({ status: "success", data: [] });
+        return;
+      }
+      const data = await InterviewLogModel.find({
+        interviewRef: { $in: interviewIds },
+      }).sort({ createdAt: -1 });
+      res.status(200).json({ status: "success", data });
+      return;
+    }
+
+    // Mode 2 — by direct `interviewRef` (or date-window filters).
+    const q = handleDateQuery(req.query as Record<string, unknown>);
+    const data = await InterviewLogModel.find(q).sort({ createdAt: -1 });
+    res.status(200).json({ status: "success", data });
+  } catch (error) {
+    res.status(400).json({
+      status: "failed",
+      error: getErrorMessage(error),
+    });
+  }
+};
+
+export const createInterviewLog = async (req: Request, res: Response) => {
+  try {
+    const data = await InterviewLogModel.create(req.body);
+    res.status(200).json({ status: "success", data });
+  } catch (error) {
+    console.log(error);
+    res.status(400).json({
       status: "failed",
       error: getErrorMessage(error),
     });

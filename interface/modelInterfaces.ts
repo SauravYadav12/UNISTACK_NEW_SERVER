@@ -322,6 +322,20 @@ export interface IRequirementLog {
   updatedAt: string;
 }
 
+// Interview Log Interface — same shape as the requirement log, just keyed
+// to interview docs. Activity tracking for the interview drawer.
+export interface IInterviewLog {
+  _id: string;
+  interviewRef: string;
+  operation: 'create' | 'update' | 'delete';
+  userName: string;
+  userRef: string;
+  oldData?: Partial<unknown>;
+  newData: Partial<unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // Sales Lead Comment Interface (used in SalesLead)
 export interface ISalesLeadComment {
   _id: string;

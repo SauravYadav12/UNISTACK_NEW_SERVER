@@ -143,13 +143,17 @@ async function runTick() {
   }
 
   // ── Stale confirmed interview imminent (marketing) ─────────────────────
-  // "interviewDate older than (STALE_CONFIRM_DAYS − lead) days" — i.e. the
-  // scheduled date has already passed by enough that the penalty is close.
+  // "First confirmed older than (STALE_CONFIRM_DAYS − lead) days" — the
+  // clock starts when the interview FIRST hit `Interview Confirm` (the
+  // `_perfConfirmedAt` stamp set by `stampInterviewMilestones`, which is
+  // set-once and survives a later Confirm → Tentative → Confirm cycle).
+  // Restricted to client interviews only — vendor / IMP prep rounds
+  // never penalise.
   const staleConfCutoff = cutoffDate(staleConfDays);
   const staleConfIvs = await InterviewModel.find({
     interviewStatus: "Interview Confirm",
     interviewWith: "Client",
-    interviewDate: { $lt: staleConfCutoff },
+    _perfConfirmedAt: { $lt: staleConfCutoff },
     marketingPersonRef: { $exists: true },
   } as Record<string, unknown>)
     .select("intId reqID marketingPersonRef")
@@ -164,8 +168,8 @@ async function runTick() {
     void emitNotification({
       recipients: [g.recipient as string],
       type: "PERF_STALE_CONFIRMED",
-      title: `${g.reqIDs.length} confirmed interview${g.reqIDs.length > 1 ? "s" : ""} past their date`,
-      body: `You have ${g.reqIDs.length} confirmed interview${g.reqIDs.length > 1 ? "s" : ""} whose scheduled date has passed without being completed. Move them to Completed or update the status to avoid the stale-confirm penalty.`,
+      title: `${g.reqIDs.length} confirmed interview${g.reqIDs.length > 1 ? "s" : ""} stuck in Confirm`,
+      body: `You have ${g.reqIDs.length} confirmed client interview${g.reqIDs.length > 1 ? "s" : ""} that have been sitting in "Interview Confirm" without progressing to Completed. Move them forward to avoid the stale-confirm penalty.`,
       link: { kind: "filter", filterReqIDs: g.reqIDs },
       dedupeKey: `perf:stale-conf:${moment.tz(TZ).format("YYYY-MM-DD")}`,
     });
@@ -249,12 +253,19 @@ async function runTick() {
     void stampReqPenalty(r._id, "_perfUnworkedPenaltyFiredAt", now);
   }
 
-  // Stale-confirmed-interview penalty (marketing)
+  // Stale-confirmed-interview penalty (marketing).
+  // Clock starts from the FIRST time the interview hit "Interview Confirm"
+  // (`_perfConfirmedAt`), not from `interviewDate` (the scheduled meeting
+  // date — which may be in the future and isn't the right signal). The
+  // `_perfConfirmedAt` field is set-once via `stampInterviewMilestones`,
+  // so Confirm → Tentative → Confirm-again preserves the ORIGINAL first-
+  // confirm date as the clock. Client interviews only — vendor / IMP
+  // confirms never penalise.
   const staleConfFireCutoff = fullThresholdCutoff(staleConfDays);
   const staleConfFireIvs = await InterviewModel.find({
     interviewStatus: "Interview Confirm",
     interviewWith: "Client",
-    interviewDate: { $lt: staleConfFireCutoff },
+    _perfConfirmedAt: { $lt: staleConfFireCutoff },
     _perfStaleConfirmFiredAt: { $exists: false },
   } as Record<string, unknown>)
     .select("_id")

@@ -7,6 +7,8 @@ import {
   updateInterview,
   deleteInterview,
   getInterviewsForParent,
+  getInterviewLog,
+  createInterviewLog,
 } from "../controllers/interviewController";
 
 interviewRoute.get(
@@ -37,6 +39,19 @@ interviewRoute.delete(
   "/delete-interview/:id",
   passport.authenticate("jwt", { session: false }),
   deleteInterview
+);
+
+// ── Activity log ────────────────────────────────────────────────────────
+interviewRoute.get(
+  "/get-log",
+  passport.authenticate("jwt", { session: false }),
+  getInterviewLog
+);
+
+interviewRoute.post(
+  "/create-log",
+  passport.authenticate("jwt", { session: false }),
+  createInterviewLog
 );
 
 export { interviewRoute };
