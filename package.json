@@ -11,7 +11,8 @@
     "test:watch": "jest --watch",
     "migrate:perf-timestamps": "ts-node scripts/migrations/2026-05-14-backfill-perf-timestamps.ts",
     "migrate:reset-unworked-penalty": "ts-node scripts/migrations/2026-05-16-reset-unworked-penalty-for-worked-reqs.ts",
-    "migrate:dedupe-notifications": "ts-node scripts/migrations/2026-05-18-dedupe-existing-notifications.ts"
+    "migrate:dedupe-notifications": "ts-node scripts/migrations/2026-05-18-dedupe-existing-notifications.ts",
+    "migrate:cleanup-stale-confirm": "ts-node scripts/migrations/2026-05-22-cleanup-stale-confirm-penalty.ts"
   },
   "author": "",
   "license": "ISC",
