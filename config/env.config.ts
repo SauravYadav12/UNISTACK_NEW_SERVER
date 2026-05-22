@@ -33,39 +33,47 @@ export function logMissingEnvVars(
 }
 
 const ENV_VARS = {
-    NODE_ENV : process.env.NODE_ENV,
-    PORT : process.env.PORT,
-    ALLOWED_ORIGINS : process.env.ALLOWED_ORIGINS?.split(",").map(origin => origin.trim()),
-    DATABASE : process.env.DATABASE,
-    DATABASE_PASSWORD : process.env.DATABASE_PASSWORD,
-    ARCHIVE_DATABASE : process.env.ARCHIVE_DATABASE,
-    ARCHIVE_DATABASE_PASSWORD : process.env.ARCHIVE_DATABASE_PASSWORD,
+  NODE_ENV: process.env.NODE_ENV,
+  PORT: process.env.PORT,
+  ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS?.split(",").map((origin) =>
+    origin.trim(),
+  ),
+  DATABASE: process.env.DATABASE,
+  DATABASE_PASSWORD: process.env.DATABASE_PASSWORD,
+  ARCHIVE_DATABASE: process.env.ARCHIVE_DATABASE,
+  ARCHIVE_DATABASE_PASSWORD: process.env.ARCHIVE_DATABASE_PASSWORD,
 
-    JWT_SECRET_KEY : process.env.JWT_SECRET_KEY,
-    JWT_EXPIRES_IN : process.env.JWT_EXPIRES_IN,
+  JWT_SECRET_KEY: process.env.JWT_SECRET_KEY,
+  JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN,
 
-    S3CLIENT_END_POINT : process.env.S3CLIENT_END_POINT,
-    STORAGE_SECRET_ACCESS_KEY : process.env.STORAGE_SECRET_ACCESS_KEY,
-    STORAGE_ACCESS_KEY_ID : process.env.STORAGE_ACCESS_KEY_ID,
-    STORAGE_BUCKET : process.env.STORAGE_BUCKET,
-    STORAGE_BUCKET_2 : process.env.STORAGE_BUCKET_2,
+  S3CLIENT_END_POINT: process.env.S3CLIENT_END_POINT,
+  STORAGE_SECRET_ACCESS_KEY: process.env.STORAGE_SECRET_ACCESS_KEY,
+  STORAGE_ACCESS_KEY_ID: process.env.STORAGE_ACCESS_KEY_ID,
+  STORAGE_BUCKET: process.env.STORAGE_BUCKET,
+  STORAGE_BUCKET_2: process.env.STORAGE_BUCKET_2,
 
+  SMTP_HOST: process.env.SMTP_HOST,
+  SMTP_PASS: process.env.SMTP_PASS,
+  SMTP_USER: process.env.SMTP_USER,
+  SMTP_PORT: process.env.SMTP_PORT,
 
-    SMTP_HOST : process.env.SMTP_HOST,
-    SMTP_PASS : process.env.SMTP_PASS,
-    SMTP_USER : process.env.SMTP_USER,
-    SMTP_PORT : process.env.SMTP_PORT,
+  COMPANY_EMAIL: process.env.COMPANY_EMAIL,
+  LEAVE_NOTIFY_EMAILS: process.env.LEAVE_NOTIFY_EMAILS?.split(",")
+    .map((e) => e.trim())
+    .filter(Boolean),
+  ACCOUNTS_NOTIFY_EMAILS: process.env.ACCOUNTS_NOTIFY_EMAILS?.split(",")
+    .map((e) => e.trim())
+    .filter(Boolean),
+  INVOICE_DUE_CHECK_HOUR: process.env.INVOICE_DUE_CHECK_HOUR
+    ? Number(process.env.INVOICE_DUE_CHECK_HOUR)
+    : 9,
 
-
-    COMPANY_EMAIL : process.env.COMPANY_EMAIL,
-    LEAVE_NOTIFY_EMAILS : process.env.LEAVE_NOTIFY_EMAILS?.split(",").map(e => e.trim()).filter(Boolean),
-    ACCOUNTS_NOTIFY_EMAILS : process.env.ACCOUNTS_NOTIFY_EMAILS?.split(",").map(e => e.trim()).filter(Boolean),
-    INVOICE_DUE_CHECK_HOUR : process.env.INVOICE_DUE_CHECK_HOUR ? Number(process.env.INVOICE_DUE_CHECK_HOUR) : 9,
-
-    FRONTEND_URL : process.env.FRONTEND_URL,
-    CLAUDE_API_KEY : process.env.CLAUDE_API_KEY,
-    CLAUDE_MODEL : process.env.CLAUDE_MODEL,
-}
+  FRONTEND_URL: process.env.FRONTEND_URL,
+  CLAUDE_API_KEY: process.env.CLAUDE_API_KEY,
+  CLAUDE_MODEL: process.env.CLAUDE_MODEL,
+  JSEARCH_RAPIDAPI_KEY: process.env.JSEARCH_RAPIDAPI_KEY,
+  JSEARCH_RAPIDAPI_HOST: process.env.JSEARCH_RAPIDAPI_HOST,
+};
 
 logMissingEnvVars(ENV_VARS, "Missing environment variables in .env");
 

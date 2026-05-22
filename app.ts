@@ -44,6 +44,7 @@ import { invoiceRoute } from "./routes/invoiceRoute";
 import { invoiceEmailSettingsRoute } from "./routes/invoiceEmailSettingsRoute";
 import { performanceRoute } from "./routes/performanceRoute";
 import { notificationRoute } from "./routes/notificationRoute";
+import { jobBoardRoute } from "./routes/jobBoardRoutes";
 import { initInvoiceDueScheduler } from "./services/invoiceDueScheduler";
 import { initLeaveBalanceSystem } from "./services/leaveBalanceScheduler";
 import { initPerformanceWarningScheduler } from "./services/performanceWarningScheduler";
@@ -117,6 +118,18 @@ app.use("/invoices", invoiceRoute);
 app.use("/invoice-email-settings", invoiceEmailSettingsRoute);
 app.use("/performance", performanceRoute);
 app.use("/notifications", notificationRoute);
+app.use("/job-search", jobBoardRoute);
+
+// Surface a clear boot-time warning if the Job Boards feature is wired
+// up but the upstream key is missing. Without this, the first search
+// would just 503 with no explanation in the deploy logs.
+if (!process.env.JSEARCH_RAPIDAPI_KEY) {
+  console.warn(
+    "[job-search] JSEARCH_RAPIDAPI_KEY is not set. " +
+      "Job Boards searches will fail with a 503 until it is added to .env. " +
+      "Sign up at https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch and subscribe to a tier.",
+  );
+}
 
 //PORT
 const port = ENV_VARS.PORT || 5000;
