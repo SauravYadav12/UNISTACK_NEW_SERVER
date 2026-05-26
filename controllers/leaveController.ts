@@ -22,7 +22,10 @@ import {
   getLeaveTypeById,
   getUnpaidBucketType,
 } from "./leaveTypeController";
-import { Types } from "mongoose";
+import { FilterQuery, Types } from "mongoose";
+import { UserProfileModel } from "../models/userProfileModel";
+import { LeaveTypeModel } from "../models/leaveTypeModel";
+import { isOnProbation, probationEndDate } from "../utils/probation";
 
 function requestedDays(leave: { startDate: string; endDate: string; isHalfDay?: boolean }): number {
   const start = moment(leave.startDate, "YYYY/MM/DD");
@@ -123,6 +126,77 @@ function validateDateOrder(body: Record<string, unknown>): string | null {
   return null;
 }
 
+/**
+ * GET /leaves/me/probation
+ *
+ * Returns the calling user's probation snapshot. React reads this from
+ * the leave-request form to filter the type picker (probationary
+ * employees only see UL) and to show a banner explaining the rule.
+ *
+ * Shape is intentionally small so it's cheap to poll on form mount:
+ *   { onProbation: boolean, probationEnd?: ISO date, dateOfJoining?: ISO }
+ */
+export const getMyProbationStatus = async (req: Request, res: Response) => {
+  try {
+    const user = req.user as UserDoc;
+    const profileFilter = { user: user._id } as FilterQuery<
+      Record<string, unknown>
+    >;
+    const profile = await UserProfileModel.findOne(profileFilter)
+      .select(
+        "dateOfJoining probationStatus probationOriginalEndDate probationEndDate",
+      )
+      .lean();
+    const p = profile as {
+      dateOfJoining?: Date;
+      probationStatus?: "in_progress" | "confirmed";
+      probationOriginalEndDate?: Date;
+      probationEndDate?: Date;
+    } | null;
+    const doj = p?.dateOfJoining;
+    // New rule: probation is explicit (status field). Falls back to the
+    // legacy derived check only when status hasn't been stamped yet
+    // (briefly during migration; new joiners always have it).
+    const onProbation =
+      p?.probationStatus === "in_progress" ||
+      (!p?.probationStatus && isOnProbation(doj, new Date()));
+    // The date the banner shows — prefer the explicit originalEnd, fall
+    // back to the derived 3-month boundary for legacy users.
+    const probationEnd =
+      p?.probationOriginalEndDate ??
+      (doj ? probationEndDate(doj) : undefined);
+    const today = new Date();
+    // Awaiting-confirmation is true when:
+    //   - status is explicitly 'in_progress' AND originalEndDate <= today, OR
+    //   - status is unset (legacy) AND derived 3-month boundary <= today
+    //     (the cron also picks these up for the admin notification).
+    const explicitOriginalEnd = p?.probationOriginalEndDate
+      ? new Date(p.probationOriginalEndDate)
+      : null;
+    const derivedEnd =
+      !p?.probationStatus && doj ? probationEndDate(doj) : null;
+    const effectiveOriginal = explicitOriginalEnd ?? derivedEnd;
+    const awaitingConfirmation =
+      onProbation &&
+      Boolean(effectiveOriginal) &&
+      (effectiveOriginal as Date).getTime() <= today.getTime();
+    res.status(200).json({
+      data: {
+        onProbation,
+        awaitingConfirmation: Boolean(awaitingConfirmation),
+        dateOfJoining: doj ? doj.toISOString() : undefined,
+        probationEnd: probationEnd ? probationEnd.toISOString() : undefined,
+        probationStatus: p?.probationStatus ?? null,
+        probationConfirmedEnd: p?.probationEndDate
+          ? new Date(p.probationEndDate).toISOString()
+          : undefined,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ error });
+  }
+};
+
 export const createLeave = async (req: Request, res: Response) => {
   try {
     const user = req.user as UserDoc;
@@ -130,6 +204,39 @@ export const createLeave = async (req: Request, res: Response) => {
     if (dateErr) {
       res.status(400).json({ error: dateErr });
       return;
+    }
+
+    // Probation guard: while the employee is in their 3-month window,
+    // only the unpaid bucket (UL) is a legal leave-type. Fetch the
+    // profile + selected type, short-circuit with a 400 if the type
+    // isn't unpaid. The React form already filters the picker, so this
+    // is a defence-in-depth check, not the primary UX.
+    if (req.body.leaveType) {
+      const profileFilter = { user: user._id } as FilterQuery<
+        Record<string, unknown>
+      >;
+      const [profile, type] = await Promise.all([
+        UserProfileModel.findOne(profileFilter).select("dateOfJoining").lean(),
+        LeaveTypeModel.findById(req.body.leaveType)
+          .select("isUnpaidBucket name code")
+          .lean(),
+      ]);
+      const doj = (profile as { dateOfJoining?: Date } | null)?.dateOfJoining;
+      if (
+        isOnProbation(doj, new Date()) &&
+        type &&
+        !type.isUnpaidBucket
+      ) {
+        const endDate = doj
+          ? probationEndDate(doj).toISOString().slice(0, 10)
+          : "";
+        res.status(400).json({
+          error:
+            `You are on probation until ${endDate}. Only unpaid leave is allowed during this period.`,
+          probation: { onProbation: true, probationEnd: endDate },
+        });
+        return;
+      }
     }
 
     // If the caller didn't precompute a split (legacy clients), derive one

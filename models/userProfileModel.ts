@@ -13,6 +13,30 @@ export interface UserProfileDoc extends Omit<UserProfile, '_id' | 'user' | 'dob'
   user: Schema.Types.ObjectId;
   dob?: Date;
   dateOfJoining?: Date;
+  // Set when the employee is marked inactive. Cleared if they're
+  // reactivated later. Used by the leave engine to stop accruing leaves
+  // after the relieving date and surfaced on the profile UI.
+  relievingDate?: Date;
+  // ── Probation workflow ──────────────────────────────────────────────
+  // Status drives whether leaves accrue. New joiners are 'in_progress'
+  // from day 1; an admin must explicitly Confirm before any paid leaves
+  // are credited. There is NO automatic flip — strict gate.
+  probationStatus?: "in_progress" | "confirmed";
+  // 90 days from dateOfJoining (set at activation). Daily cron uses this
+  // to fire a notification once it's passed and status is still
+  // in_progress. Admin extension increments this (e.g., +30 days).
+  probationOriginalEndDate?: Date;
+  // The date admin chose when confirming probation. May be backdated
+  // (admin saw it late) or forward (early confirmation) — whatever
+  // makes business sense. This is the anchor the leave engine uses
+  // to compute prorata after confirmation.
+  probationEndDate?: Date;
+  // Audit trail for confirmation.
+  probationConfirmedAt?: Date;
+  probationConfirmedBy?: Schema.Types.ObjectId;
+  // Running total of days the original window was extended by.
+  // Increment-only; surfaces in the admin UI / audit log.
+  probationExtensionDays?: number;
 }
 const urlValidator = {
   validator: (v: string) => !v || /^https:\/\/.+/.test(v),
@@ -116,6 +140,19 @@ const userProfileSchema = new Schema<UserProfileDoc>(
     resume: { type: String, validate: urlValidator, default: "" },
     designation: { type: String, default: "" },
     dateOfJoining: { type: Date },
+    // Set on deactivation, cleared on reactivation. Drives leave-accrual
+    // cutoff and visible on the profile UI.
+    relievingDate: { type: Date },
+    // ── Probation workflow ────────────────────────────────────────────
+    probationStatus: {
+      type: String,
+      enum: ["in_progress", "confirmed"],
+    },
+    probationOriginalEndDate: { type: Date },
+    probationEndDate: { type: Date },
+    probationConfirmedAt: { type: Date },
+    probationConfirmedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    probationExtensionDays: { type: Number, default: 0 },
   },
   { timestamps: true }
 );

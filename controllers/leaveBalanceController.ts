@@ -29,13 +29,15 @@ function str(v: unknown): string {
 // have to re-derive the quota math. The lean-populated balance has
 // leaveType expanded to the full doc; we read monthlyQuota / isUnpaidBucket
 // off that. We also pass through the row's own `monthlyQuota` override
-// (if any) so per-user adjustments are reflected in the response.
+// AND `leaveStartMonth` so probationary employees correctly show 0
+// available before their leave-start month.
 function withMonthlyAvailable<
   T extends {
     leaveType: unknown;
     allocated: number;
     used: number;
     monthlyQuota?: number | null;
+    leaveStartMonth?: number | null;
   }
 >(rows: T[], month: number) {
   return rows.map((b) => {
@@ -47,6 +49,11 @@ function withMonthlyAvailable<
             allocated: b.allocated,
             used: b.used,
             monthlyQuota: b.monthlyQuota,
+            // Critical for probationary employees: without this,
+            // `computeMonthlyAvailable` falls back to startMonth=1 and
+            // exposes the full annual allocation in the very first
+            // calendar month.
+            leaveStartMonth: b.leaveStartMonth,
           },
           month,
         )

@@ -6,9 +6,18 @@ import {
   deleteLeave,
   getLeaveById,
   getLeaves,
+  getMyProbationStatus,
   updateLeave,
 } from "../controllers/leaveController";
 const leaveRoute = Router();
+
+// Place specific routes before `/:id` so they aren't swallowed by the
+// generic getLeaveById matcher.
+leaveRoute.get(
+  "/me/probation",
+  passport.authenticate("jwt", { session: false }),
+  getMyProbationStatus,
+);
 
 leaveRoute.post(
   "/",

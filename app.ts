@@ -45,10 +45,12 @@ import { invoiceEmailSettingsRoute } from "./routes/invoiceEmailSettingsRoute";
 import { performanceRoute } from "./routes/performanceRoute";
 import { notificationRoute } from "./routes/notificationRoute";
 import { jobBoardRoute } from "./routes/jobBoardRoutes";
+import { probationRoute } from "./routes/probationRoute";
 import { initInvoiceDueScheduler } from "./services/invoiceDueScheduler";
 import { initLeaveBalanceSystem } from "./services/leaveBalanceScheduler";
 import { initPerformanceWarningScheduler } from "./services/performanceWarningScheduler";
 import { initInterviewReminderScheduler } from "./services/interviewReminderScheduler";
+import { startProbationNotificationScheduler } from "./services/probationNotificationScheduler";
 import initPassport from "./config/passport";
 import ENV_VARS from "./config/env.config";
 const app = express();
@@ -86,6 +88,7 @@ mongoose
     initInvoiceDueScheduler();
     initPerformanceWarningScheduler();
     initInterviewReminderScheduler();
+    startProbationNotificationScheduler();
   }).catch((err) => {
     console.error("DB connection error:", err);
   });
@@ -119,6 +122,7 @@ app.use("/invoice-email-settings", invoiceEmailSettingsRoute);
 app.use("/performance", performanceRoute);
 app.use("/notifications", notificationRoute);
 app.use("/job-search", jobBoardRoute);
+app.use("/probation", probationRoute);
 
 // Surface a clear boot-time warning if the Job Boards feature is wired
 // up but the upstream key is missing. Without this, the first search

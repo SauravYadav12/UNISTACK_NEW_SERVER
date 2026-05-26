@@ -28,6 +28,19 @@ export interface LeaveBalanceDoc extends Document {
    *   type only. `0` means "no monthly accrual" (carry-forward only).
    */
   monthlyQuota?: number | null;
+  /**
+   * 1-indexed month in `year` when this user's monthly accrual begins.
+   * Defaults to 1 (January) for legacy / full-year employees.
+   *
+   * For new joiners on probation, set to `joinMonth + 3` so the
+   * cumulative-monthly-cap formula re-anchors. Example: April joiner →
+   * `leaveStartMonth = 7`; July is treated as their accrual month #1
+   * with `1 * monthlyQuota` available, August is month #2, etc.
+   *
+   * Decoupled from `dateOfJoining` so future rule changes can override
+   * per-balance without touching the user's profile date.
+   */
+  leaveStartMonth?: number | null;
   notes?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -41,6 +54,7 @@ const leaveBalanceSchema = new Schema<LeaveBalanceDoc>(
     allocated: { type: Number, default: 0, min: 0 },
     used: { type: Number, default: 0, min: 0 },
     monthlyQuota: { type: Number, default: null, min: 0 },
+    leaveStartMonth: { type: Number, default: null, min: 1, max: 12 },
     notes: { type: String, default: "" },
   },
   { timestamps: true },

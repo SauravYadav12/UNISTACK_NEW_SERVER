@@ -14,7 +14,8 @@ export type NotificationLinkKind =
   | "salary"
   | "project"
   | "timesheet"
-  | "filter";
+  | "filter"
+  | "employee-management";
 
 export interface NotificationLink {
   kind: NotificationLinkKind;
@@ -30,6 +31,9 @@ export interface NotificationLink {
   periodMonth?: string;
   /** Aggregated proactive-warning targets (list of reqIDs). */
   filterReqIDs?: string[];
+  /** For employee-management links — which employee triggered the
+   *  notification (probation review, onboarding step, etc.). */
+  employeeRef?: string;
 }
 
 export interface NotificationActor {

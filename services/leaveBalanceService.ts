@@ -4,6 +4,11 @@ import { LeaveTypeModel, LeaveTypeDoc } from "../models/leaveTypeModel";
 import { UserModel } from "../models/userModel";
 import { UserProfileModel } from "../models/userProfileModel";
 import { UserRole } from "../enums/UserEnum";
+import {
+  isProbationApplicable,
+  leaveStartMonthForYear,
+  eligibleMonthsInYear,
+} from "../utils/probation";
 
 // Super-admins are not employees on the books — they don't accrue or
 // consume leave. Used everywhere a user list feeds the leave-balance
@@ -74,12 +79,20 @@ export async function listBalancesForUser(userId: string | Types.ObjectId, year:
  *   effectiveQuota = balance.monthlyQuota               (per-user override)
  *                 ?? type.monthlyQuota                  (type default, e.g. PL = 1/mo)
  *                 ?? null                               (uncapped — ML / UL)
- *   monthlyCeiling = min(month * effectiveQuota, allocated)
+ *   startMonth     = balance.leaveStartMonth ?? 1       (probation re-anchor)
+ *   monthsAccrued  = max(0, month - startMonth + 1)     (count from start)
+ *   monthlyCeiling = min(monthsAccrued * effectiveQuota, allocated)
  *   available      = max(monthlyCeiling - used, 0)
  *
  * Per-user override on `LeaveBalance.monthlyQuota` always wins — admin
  * can tune individual employees (`0` disables accrual; any number sets
  * a custom rate) without touching the type for everyone else.
+ *
+ * `leaveStartMonth` is set on the balance row for probationary new
+ * joiners — e.g. an April joiner gets `leaveStartMonth = 7`, so July
+ * is treated as month #1 of accrual (1 day available), August as #2
+ * (2 days), etc. Legacy / full-year employees leave it at 1 (or null,
+ * which the formula treats as 1) so behaviour is unchanged.
  *
  * `null`/undefined `monthlyQuota` (on either) means "no monthly cap" —
  * the full remaining annual balance is available (ML, UL).
@@ -87,7 +100,12 @@ export async function listBalancesForUser(userId: string | Types.ObjectId, year:
 export function computeMonthlyAvailable(
   type: Pick<LeaveTypeDoc, "monthlyQuota" | "isUnpaidBucket">,
   balance:
-    | { allocated: number; used: number; monthlyQuota?: number | null }
+    | {
+        allocated: number;
+        used: number;
+        monthlyQuota?: number | null;
+        leaveStartMonth?: number | null;
+      }
     | null,
   month: number, // 1–12
 ): number {
@@ -110,7 +128,11 @@ export function computeMonthlyAvailable(
     return Math.max(allocated - used, 0);
   }
 
-  const monthlyCeiling = Math.min(month * effectiveQuota, allocated);
+  // Re-anchor the ceiling so probationary joiners don't unlock the
+  // entire allocation on day 1 of their leave-eligible month.
+  const startMonth = balance?.leaveStartMonth ?? 1;
+  const monthsAccrued = Math.max(0, month - startMonth + 1);
+  const monthlyCeiling = Math.min(monthsAccrued * effectiveQuota, allocated);
   return Math.max(monthlyCeiling - used, 0);
 }
 
@@ -168,6 +190,7 @@ export async function computeLeaveSplit(args: {
           allocated: balance.allocated,
           used: balance.used,
           monthlyQuota: balance.monthlyQuota,
+          leaveStartMonth: balance.leaveStartMonth,
         }
       : null,
     args.month,
@@ -296,12 +319,115 @@ export function prorataMultiplier(
   return remainingMonths / 12;
 }
 
+/**
+ * Probation context bundled per-user, fetched alongside DOJ. Carrying
+ * these three fields lets `computeAllocationForType` decide without
+ * touching the DB again.
+ */
+interface UserProbationCtx {
+  dateOfJoining?: Date | null;
+  probationStatus?: "in_progress" | "confirmed" | null;
+  probationEndDate?: Date | null;
+}
+
+/**
+ * Compute the per-type allocation, monthly quota, and start-month for
+ * one (user, year, leaveType) row given the user's DOJ + probation
+ * status. The three branches are mutually exclusive:
+ *
+ *  A. UL / unpaid bucket  → allocated 0 always.
+ *
+ *  B. probationStatus = 'in_progress'
+ *     → allocated 0, monthlyQuota = type rate (locked for when status
+ *       flips to confirmed and a re-seed runs), leaveStartMonth = 13
+ *       (sentinel = nothing accrues this year). No paid leaves credit
+ *       until an admin confirms via the EmployeeManagement page.
+ *
+ *  C. probationStatus = 'confirmed'
+ *     → use probationEndDate's calendar month as the leave-start anchor.
+ *       Backdating credits retroactively (admin saw it late) — e.g.
+ *       endDate = May 23 → leaveStartMonth = 5 → May–Dec eligible →
+ *       8 × monthlyRate. Forward-dating also works.
+ *
+ *  D. Legacy / pre-feature-launch DOJ (or no DOJ)
+ *     → unchanged: allocated = type.defaultAllocationPerYear ×
+ *       prorataMultiplier(DOJ, year); leaveStartMonth = 1.
+ *
+ * The implicit-probation path (post-launch DOJ but no explicit status)
+ * is folded into 'in_progress' — once the admin-driven workflow is
+ * live, every new joiner gets a status set at activation, so this case
+ * should only show up for the brief window during the migration.
+ */
+function computeAllocationForType(
+  type: Pick<
+    LeaveTypeDoc,
+    "defaultAllocationPerYear" | "monthlyQuota" | "isUnpaidBucket"
+  >,
+  ctx: UserProbationCtx,
+  year: number,
+): { allocated: number; monthlyQuota: number | null; leaveStartMonth: number } {
+  // ── A. UL / unpaid bucket ─────────────────────────────────────────
+  if (type.isUnpaidBucket) {
+    return { allocated: 0, monthlyQuota: null, leaveStartMonth: 1 };
+  }
+
+  const monthlyRate = type.monthlyQuota ?? 1;
+
+  // ── B. Probation in progress ──────────────────────────────────────
+  // No paid leaves credit until admin confirms. We lock the monthly
+  // rate so future re-seeds (post-confirmation) don't drift to type
+  // default, but allocated stays 0 and leaveStartMonth = 13 so the
+  // available-this-month formula returns 0.
+  const treatAsInProgress =
+    ctx.probationStatus === "in_progress" ||
+    (!ctx.probationStatus &&
+      isProbationApplicable(ctx.dateOfJoining ?? undefined));
+  if (treatAsInProgress) {
+    return {
+      allocated: 0,
+      monthlyQuota: monthlyRate,
+      leaveStartMonth: 13,
+    };
+  }
+
+  // ── C. Probation confirmed ────────────────────────────────────────
+  // Use the admin-chosen probationEndDate's calendar month as the
+  // leave-start anchor. Allow backdating (full credit from past month
+  // onwards) and forward-dating.
+  if (ctx.probationStatus === "confirmed" && ctx.probationEndDate) {
+    const end = new Date(ctx.probationEndDate);
+    const endYear = end.getFullYear();
+    if (endYear > year) {
+      // Future-confirmed but next year — nothing this year.
+      return { allocated: 0, monthlyQuota: monthlyRate, leaveStartMonth: 13 };
+    }
+    const startMonth = endYear < year ? 1 : end.getMonth() + 1;
+    const eligible = Math.max(0, 12 - startMonth + 1);
+    const allocated = roundHalf(eligible * monthlyRate);
+    return {
+      allocated,
+      monthlyQuota: monthlyRate,
+      leaveStartMonth: startMonth,
+    };
+  }
+
+  // ── D. Legacy / pre-launch joiner: unchanged behaviour ────────────
+  const base = type.defaultAllocationPerYear || 0;
+  const allocated =
+    base > 0
+      ? roundHalf(base * prorataMultiplier(ctx.dateOfJoining ?? undefined, year))
+      : 0;
+  return { allocated, monthlyQuota: null, leaveStartMonth: 1 };
+}
+
 /** Round to nearest 0.5 so allocations read cleanly (e.g. 5.5, not 5.833). */
 function roundHalf(n: number): number {
   return Math.round(n * 2) / 2;
 }
 
-async function doJMapForUsers(userIds: Types.ObjectId[]): Promise<Map<string, Date | undefined>> {
+async function probationCtxMapForUsers(
+  userIds: Types.ObjectId[],
+): Promise<Map<string, UserProbationCtx>> {
   if (!userIds.length) return new Map();
   // UserProfileModel declares `user` as Schema.Types.ObjectId (constructor
   // type, not instance). Strict TS rejects the $in filter with Types.ObjectId
@@ -309,11 +435,20 @@ async function doJMapForUsers(userIds: Types.ObjectId[]): Promise<Map<string, Da
   // Mongoose itself accepts both at runtime.
   const filter = { user: { $in: userIds } } as FilterQuery<Record<string, unknown>>;
   const profiles = await UserProfileModel.find(filter)
-    .select("user dateOfJoining")
+    .select("user dateOfJoining probationStatus probationEndDate")
     .lean();
-  const map = new Map<string, Date | undefined>();
-  for (const p of profiles as Array<{ user: unknown; dateOfJoining?: Date }>) {
-    map.set(String(p.user), p.dateOfJoining);
+  const map = new Map<string, UserProbationCtx>();
+  for (const p of profiles as Array<{
+    user: unknown;
+    dateOfJoining?: Date;
+    probationStatus?: "in_progress" | "confirmed";
+    probationEndDate?: Date;
+  }>) {
+    map.set(String(p.user), {
+      dateOfJoining: p.dateOfJoining,
+      probationStatus: p.probationStatus,
+      probationEndDate: p.probationEndDate,
+    });
   }
   return map;
 }
@@ -339,35 +474,31 @@ export async function resetBalancesForYear(year: number, opts: { force?: boolean
     return { year, users: users.length, types: types.length, upserted: 0 };
   }
 
-  const dojMap = await doJMapForUsers(users.map((u) => u._id as Types.ObjectId));
+  const ctxMap = await probationCtxMapForUsers(
+    users.map((u) => u._id as Types.ObjectId),
+  );
 
   const ops = [];
   for (const u of users) {
-    const multiplier = prorataMultiplier(dojMap.get(String(u._id)), year);
+    const ctx = ctxMap.get(String(u._id)) ?? {};
     for (const t of types) {
-      // UL / uncapped types with defaultAllocationPerYear == 0 are untouched
-      // by prorata (still 0). Only positive defaults get the fraction.
-      const base = t.defaultAllocationPerYear || 0;
-      const allocated = base > 0 ? roundHalf(base * multiplier) : 0;
+      const { allocated, monthlyQuota, leaveStartMonth } =
+        computeAllocationForType(t, ctx, year);
+      const insertDoc = {
+        user: u._id,
+        year,
+        leaveType: t._id,
+        allocated,
+        used: 0,
+        // Always include monthlyQuota + leaveStartMonth on the row so
+        // probationary balances re-anchor correctly. For legacy
+        // employees both fall back to defaults (null / 1).
+        monthlyQuota,
+        leaveStartMonth,
+      };
       const payload = opts.force
-        ? {
-            $set: {
-              user: u._id,
-              year,
-              leaveType: t._id,
-              allocated,
-              used: 0,
-            },
-          }
-        : {
-            $setOnInsert: {
-              user: u._id,
-              year,
-              leaveType: t._id,
-              allocated,
-              used: 0,
-            },
-          };
+        ? { $set: insertDoc }
+        : { $setOnInsert: insertDoc };
       ops.push({
         updateOne: {
           filter: { user: u._id, year, leaveType: t._id },
@@ -389,13 +520,24 @@ export async function resetBalancesForYear(year: number, opts: { force?: boolean
 
 /**
  * Seed balances for a single user across all active leave types for the
- * given year, applying prorata based on their DOJ. Used on activation of
- * a new user so they get balances the first time they log in. Won't
- * overwrite an existing balance row (uses $setOnInsert).
+ * given year, applying prorata + probation based on their DOJ. Used on:
+ *   - User activation (`opts.force = false`): inserts rows only if
+ *     they don't already exist. Safe for the common case where the
+ *     user is being onboarded for the first time.
+ *   - Profile creation (`opts.force = true`): OVERWRITES existing
+ *     rows. Necessary because the activation hook may have created
+ *     rows on the legacy path (no DOJ → multiplier=1, no probation)
+ *     before the profile existed; this re-run with the now-known DOJ
+ *     fixes those rows to honour probation.
+ *
+ * `used` is preserved across force re-seeds so we don't undo any leave
+ * already taken by the user — only `allocated`, `monthlyQuota`, and
+ * `leaveStartMonth` get rewritten.
  */
 export async function seedBalancesForUser(
   userId: string | Types.ObjectId,
   year: number,
+  opts: { force?: boolean } = {},
 ) {
   // Skip super-admins entirely — they don't accrue or consume leave.
   // Skip inactive users too — they're off-boarded, so seeding new balance
@@ -414,29 +556,57 @@ export async function seedBalancesForUser(
   const profileFilter = { user: oid(userId) } as FilterQuery<Record<string, unknown>>;
   const [types, profile] = await Promise.all([
     LeaveTypeModel.find({ active: true }).lean(),
-    UserProfileModel.findOne(profileFilter).select("dateOfJoining").lean(),
+    UserProfileModel.findOne(profileFilter)
+      .select("dateOfJoining probationStatus probationEndDate")
+      .lean(),
   ]);
 
   if (!types.length) return { userId: String(userId), upserted: 0 };
 
-  const doj = (profile as { dateOfJoining?: Date } | null)?.dateOfJoining;
-  const multiplier = prorataMultiplier(doj, year);
+  const p = profile as {
+    dateOfJoining?: Date;
+    probationStatus?: "in_progress" | "confirmed";
+    probationEndDate?: Date;
+  } | null;
+  const ctx: UserProbationCtx = {
+    dateOfJoining: p?.dateOfJoining,
+    probationStatus: p?.probationStatus,
+    probationEndDate: p?.probationEndDate,
+  };
+  const multiplier = prorataMultiplier(ctx.dateOfJoining ?? undefined, year);
 
   const ops = types.map((t) => {
-    const base = t.defaultAllocationPerYear || 0;
-    const allocated = base > 0 ? roundHalf(base * multiplier) : 0;
+    const { allocated, monthlyQuota, leaveStartMonth } =
+      computeAllocationForType(t, ctx, year);
+    const insertOnly = {
+      user: oid(userId),
+      year,
+      leaveType: t._id,
+      allocated,
+      used: 0,
+      monthlyQuota,
+      leaveStartMonth,
+    };
+    // Force mode: $set the allocation fields onto existing rows too,
+    // but DON'T reset `used` — we'd erase already-taken leaves.
+    // $setOnInsert handles the brand-new row case.
+    const forcedUpdate = {
+      $set: {
+        allocated,
+        monthlyQuota,
+        leaveStartMonth,
+      },
+      $setOnInsert: {
+        user: oid(userId),
+        year,
+        leaveType: t._id,
+        used: 0,
+      },
+    };
     return {
       updateOne: {
         filter: { user: oid(userId), year, leaveType: t._id },
-        update: {
-          $setOnInsert: {
-            user: oid(userId),
-            year,
-            leaveType: t._id,
-            allocated,
-            used: 0,
-          },
-        },
+        update: opts.force ? forcedUpdate : { $setOnInsert: insertOnly },
         upsert: true,
       },
     };
