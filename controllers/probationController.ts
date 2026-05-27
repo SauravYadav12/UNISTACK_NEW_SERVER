@@ -322,3 +322,196 @@ export const extendProbation = async (
   }
 };
 
+/**
+ * GET /employee-management/employees
+ *
+ * Lists every active, non-super-admin employee with their DOJ and a
+ * compact probation summary. Powers the "Joining dates" tab in
+ * Employee Management where super-admin can backfill / correct DOJ
+ * for any employee.
+ *
+ * Returns rows sorted by employees who DON'T have a DOJ first (those
+ * need attention), then by joining date ascending.
+ */
+export const listEmployeesWithJoiningDates = async (
+  _req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    // 1. All active, non-super-admin users.
+    const userFilter = {
+      active: true,
+      ...NOT_SUPER_ADMIN_FILTER,
+    } as FilterQuery<Record<string, unknown>>;
+    const users = await UserModel.find(userFilter)
+      .select("firstName lastName email role")
+      .sort({ firstName: 1 })
+      .lean();
+    if (!users.length) {
+      res.status(200).json({ data: [] });
+      return;
+    }
+
+    // 2. Hydrate each user's profile snapshot in a single batched query.
+    const userIds = users.map((u) => u._id);
+    const profileFilter = {
+      user: { $in: userIds },
+    } as FilterQuery<Record<string, unknown>>;
+    const profiles = await UserProfileModel.find(profileFilter)
+      .select(
+        "user dateOfJoining probationStatus probationOriginalEndDate probationEndDate relievingDate",
+      )
+      .lean();
+    const profMap = new Map<string, (typeof profiles)[number]>();
+    for (const p of profiles) profMap.set(String(p.user), p);
+
+    const data = users.map((u) => {
+      const p = profMap.get(String(u._id));
+      return {
+        userId: String(u._id),
+        firstName: u.firstName,
+        lastName: u.lastName,
+        email: u.email,
+        role: u.role,
+        dateOfJoining: p?.dateOfJoining ?? null,
+        probationStatus: p?.probationStatus ?? null,
+        probationOriginalEndDate: p?.probationOriginalEndDate ?? null,
+        probationEndDate: p?.probationEndDate ?? null,
+        relievingDate: p?.relievingDate ?? null,
+        hasProfile: Boolean(p),
+      };
+    });
+
+    // Sort: missing DOJ first, then by DOJ ascending.
+    data.sort((a, b) => {
+      if (!a.dateOfJoining && b.dateOfJoining) return -1;
+      if (a.dateOfJoining && !b.dateOfJoining) return 1;
+      if (!a.dateOfJoining && !b.dateOfJoining) return 0;
+      return (
+        new Date(a.dateOfJoining as Date).getTime() -
+        new Date(b.dateOfJoining as Date).getTime()
+      );
+    });
+
+    res.status(200).json({ data });
+  } catch (error) {
+    console.error(
+      "[employee-mgmt] list joining dates failed:",
+      (error as Error).message,
+    );
+    res.status(500).json({ error: (error as Error).message });
+  }
+};
+
+/**
+ * PATCH /employee-management/employees/:userId/joining-date
+ * Body: { dateOfJoining: ISO date string }
+ *
+ * Super-admin (or admin via ACL) sets / corrects the DOJ for any
+ * employee. Side effects:
+ *
+ *   - If the profile doesn't exist yet, returns 404 (the profile-create
+ *     flow auto-stamps DOJ; an explicit "edit DOJ" only makes sense for
+ *     existing profiles).
+ *   - The DOJ field is updated.
+ *   - If `probationStatus = 'in_progress'` (or unset legacy), the
+ *     `probationOriginalEndDate` is recomputed as DOJ + 90d. This
+ *     ensures the cron + dashboard banner reflect the new clock.
+ *   - If `probationStatus = 'confirmed'`, originalEndDate stays —
+ *     the probation is already finalised and the audit trail should
+ *     show the original timeline.
+ *   - Leave balances for the current year are force-re-seeded so
+ *     prorata / probation-aware allocation reflects the new DOJ.
+ *     `used` is preserved (see seedBalancesForUser docstring).
+ */
+export const updateEmployeeJoiningDate = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const targetUserId = String(req.params.userId || "");
+    if (!Types.ObjectId.isValid(targetUserId)) {
+      res.status(400).json({ error: "Invalid userId." });
+      return;
+    }
+
+    const dojRaw = (req.body || {}).dateOfJoining;
+    if (!dojRaw) {
+      res.status(400).json({ error: "`dateOfJoining` is required." });
+      return;
+    }
+    const newDoj = new Date(String(dojRaw));
+    if (Number.isNaN(newDoj.getTime())) {
+      res.status(400).json({ error: "Invalid `dateOfJoining`." });
+      return;
+    }
+    // Sanity bounds — block obviously-wrong values (e.g. typos like
+    // 1925 or 2099). Outside ±20 years of today is rejected.
+    const yearsAway =
+      Math.abs(newDoj.getFullYear() - new Date().getFullYear());
+    if (yearsAway > 20) {
+      res.status(400).json({
+        error: "`dateOfJoining` is more than 20 years away — looks wrong.",
+      });
+      return;
+    }
+
+    const profileFilter = {
+      user: new Types.ObjectId(targetUserId),
+    } as FilterQuery<Record<string, unknown>>;
+    const profile = await UserProfileModel.findOne(profileFilter).select(
+      "probationStatus dateOfJoining",
+    );
+    if (!profile) {
+      res.status(404).json({
+        error: "Profile not found. Activate the employee first.",
+      });
+      return;
+    }
+
+    const set: Record<string, unknown> = { dateOfJoining: newDoj };
+    // Only recompute originalEndDate when probation is still pending.
+    // For confirmed users the original window is historical and should
+    // remain stable.
+    if (
+      !profile.probationStatus ||
+      profile.probationStatus === "in_progress"
+    ) {
+      set.probationOriginalEndDate = computeProbationOriginalEndDate(newDoj);
+    }
+    await UserProfileModel.updateOne(profileFilter, { $set: set });
+
+    // Recompute leave balances for the current year. `used` is preserved
+    // so we don't erase any leaves already taken under the prior DOJ.
+    let upserted = 0;
+    try {
+      const r = await seedBalancesForUser(
+        targetUserId,
+        new Date().getFullYear(),
+        { force: true },
+      );
+      upserted = r.upserted;
+    } catch (e) {
+      console.error(
+        `[employee-mgmt] re-seed failed for user ${targetUserId}:`,
+        (e as Error).message,
+      );
+    }
+
+    res.status(200).json({
+      data: {
+        userId: targetUserId,
+        dateOfJoining: newDoj,
+        probationOriginalEndDate: set.probationOriginalEndDate ?? null,
+        balancesUpdated: upserted,
+      },
+    });
+  } catch (error) {
+    console.error(
+      "[employee-mgmt] update joining-date failed:",
+      (error as Error).message,
+    );
+    res.status(500).json({ error: (error as Error).message });
+  }
+};
+

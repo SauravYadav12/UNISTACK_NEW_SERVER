@@ -125,24 +125,75 @@ export const getInterviewsForParent = async (req: Request, res: Response) => {
 
 export const createInterview = async (req: Request, res: Response) => {
   try {
-    // Parent-with-children guard: interviews must be created against a
-    // specific child (or legacy standalone), not a parent that has spawned
-    // child assignments. A parent has stale reqStatus — routing an interview
-    // at it would flip the parent's status via syncReqStatusFromInterview and
-    // bypass the real per-marketer child record.
+    // ── Parent-record guard ────────────────────────────────────────
+    // Interviews must hit a real per-marketer assignment — i.e. either
+    // a child (`parentReqID` set on the req) or a legacy standalone
+    // that's been assigned to someone. A parent record that has spawned
+    // children but no consultant of its own should never receive an
+    // interview; routing one at it would flip the parent's status via
+    // syncReqStatusFromInterview and bypass the actual per-marketer
+    // record.
+    //
+    // Two cases we reject:
+    //   (a) Parent that HAS children → target the child instead.
+    //   (b) Top-level requirement (no parentReqID) that has NO
+    //       `assignedToRef` and NO children. This is the "unworked
+    //       parent" case that produced the recent INT-12 incident:
+    //       a parent record sitting around without a marketer ever
+    //       being assigned, then someone booked an interview against
+    //       it.
     const targetReqID =
       typeof req.body?.reqID === "string" ? req.body.reqID.trim() : "";
     if (targetReqID) {
-      const hasChildren = await RequirementModel.exists({
-        parentReqID: targetReqID,
-      });
-      if (hasChildren) {
-        res.status(400).json({
-          status: "failed",
-          message: `${targetReqID} is a parent requirement with multiple marketer assignments. Create the interview against the specific child (e.g. ${targetReqID}-A).`,
-        });
-        return;
+      const targetReq = await RequirementModel.findOne({ reqID: targetReqID })
+        .select("parentReqID assignedToRef")
+        .lean();
+      if (targetReq) {
+        const isChild = Boolean(targetReq.parentReqID);
+        if (!isChild) {
+          // Top-level — either a true parent or a standalone.
+          const hasChildren = await RequirementModel.exists({
+            parentReqID: targetReqID,
+          });
+          if (hasChildren) {
+            // Case (a) — pre-existing guard kept verbatim.
+            res.status(400).json({
+              status: "failed",
+              message: `${targetReqID} is a parent requirement with multiple marketer assignments. Create the interview against the specific child (e.g. ${targetReqID}-A).`,
+            });
+            return;
+          }
+          if (!targetReq.assignedToRef) {
+            // Case (b) — unworked parent. Reject so the marketer
+            // creates an assignment first.
+            res.status(400).json({
+              status: "failed",
+              message: `${targetReqID} has no marketer assigned. Create a child assignment first, then book the interview against that child.`,
+            });
+            return;
+          }
+        }
       }
+    }
+
+    // ── Consultant guard ───────────────────────────────────────────
+    // Downstream flows (logs, performance scoring, leaderboard) all
+    // rely on consultant being present. Without it, the interview is
+    // an orphan record. Require either the human-readable name or a
+    // ConsultantModel ref — the form fills both in normal use, but
+    // direct API calls can omit either.
+    const consultantName =
+      typeof req.body?.consultant === "string"
+        ? req.body.consultant.trim()
+        : "";
+    const consultantRef = req.body?.consultantRef;
+    if (!consultantName && !consultantRef) {
+      res.status(400).json({
+        status: "failed",
+        message:
+          "Consultant is required to create an interview. Select or enter the candidate before booking.",
+      });
+      return;
     }
 
     req.body.intId = await sequenceId(InterviewModel, "intId", "INT");

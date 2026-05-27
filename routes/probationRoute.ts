@@ -11,6 +11,8 @@ import {
   listPendingProbations,
   confirmProbation,
   extendProbation,
+  listEmployeesWithJoiningDates,
+  updateEmployeeJoiningDate,
 } from "../controllers/probationController";
 
 const auth = passport.authenticate("jwt", { session: false });
@@ -23,8 +25,26 @@ const adminOrSuper = anyRoleGuard(UserRole.Admin, UserRole.SuperAdmin);
 
 const probationRoute = express.Router();
 
+// Probation lifecycle ─────────────────────────────────────────────
 probationRoute.get("/pending", auth, adminOrSuper, listPendingProbations);
 probationRoute.post("/:userId/confirm", auth, adminOrSuper, confirmProbation);
 probationRoute.post("/:userId/extend", auth, adminOrSuper, extendProbation);
+
+// Joining-date management ─────────────────────────────────────────
+// `/probation/...` is a slight URL misnomer — these endpoints serve
+// the broader Employee Management page, not probation specifically.
+// Kept under this prefix to avoid a second route file for now.
+probationRoute.get(
+  "/employees",
+  auth,
+  adminOrSuper,
+  listEmployeesWithJoiningDates,
+);
+probationRoute.patch(
+  "/employees/:userId/joining-date",
+  auth,
+  adminOrSuper,
+  updateEmployeeJoiningDate,
+);
 
 export { probationRoute };
