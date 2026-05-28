@@ -287,6 +287,24 @@ export const createLeave = async (req: Request, res: Response) => {
       }
     }
 
+    // Denormalize the chosen leave type's NAME onto the legacy `type`
+    // string field. The Leave schema declares `type` as a hardcoded
+    // enum with `default: "Casual Leave"`, so when the React form
+    // sends only `leaveType` (ObjectId) the default kicks in and the
+    // admin grid + emails read "Casual Leave" regardless of what
+    // the employee actually picked. Resolving the type doc here and
+    // stamping `type = name` keeps that legacy field accurate.
+    if (req.body.leaveType) {
+      try {
+        const typeDoc = await LeaveTypeModel.findById(req.body.leaveType)
+          .select("name")
+          .lean();
+        if (typeDoc?.name) req.body.type = typeDoc.name;
+      } catch {
+        // Non-fatal — the leave will still save with the schema default.
+      }
+    }
+
     const newLeave = new LeaveModel({
       ...req.body,
       userRef: user._id.toString(),
@@ -454,6 +472,21 @@ export const updateLeave = async (req: Request, res: Response) => {
         } catch {
           // Leave the old breakdown in place if recompute fails.
         }
+      }
+    }
+
+    // If the caller changed `leaveType` to a different type, also
+    // re-sync the denormalized `type` string so the admin grid +
+    // email reflect the new pick. Same rationale as the createLeave
+    // sync block above.
+    if (req.body.leaveType) {
+      try {
+        const typeDoc = await LeaveTypeModel.findById(req.body.leaveType)
+          .select("name")
+          .lean();
+        if (typeDoc?.name) req.body.type = typeDoc.name;
+      } catch {
+        // Non-fatal.
       }
     }
 

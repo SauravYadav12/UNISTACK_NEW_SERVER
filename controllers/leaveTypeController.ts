@@ -5,6 +5,7 @@ import {
   suggestLeaveCode,
 } from "../models/leaveTypeModel";
 import { LeaveBalanceModel } from "../models/leaveBalanceModel";
+import { LeaveModel } from "../models/leaveModel";
 import { UserModel } from "../models/userModel";
 
 export const listLeaveTypes = async (req: Request, res: Response) => {
@@ -101,10 +102,41 @@ export const deleteLeaveType = async (req: Request, res: Response) => {
       res.status(400).json({ error: "Cannot delete the unpaid-bucket type" });
       return;
     }
-    // Soft delete: keep historical balance/leave refs intact.
+
+    // Try a HARD delete first — possible when nothing references this
+    // type yet (typical for accidentally-created types, or built-in
+    // types like "Casual Leave" / "Sick Leave" the org never used).
+    // Bail to soft-delete the moment we find even one Leave or
+    // LeaveBalance pointing at it, since those rows would be orphaned.
+    const [usedByLeave, usedByBalance] = await Promise.all([
+      LeaveModel.exists({ leaveType: doc._id }),
+      // A balance with `used > 0` means real history. A balance with
+      // `used: 0` is just an auto-seeded placeholder — those CAN be
+      // safely deleted alongside the type so the panel actually
+      // becomes empty.
+      LeaveBalanceModel.exists({ leaveType: doc._id, used: { $gt: 0 } }),
+    ]);
+
+    if (!usedByLeave && !usedByBalance) {
+      // No real history → hard-delete the type AND any zero-used
+      // placeholder balances. Result: the panel and any allocation
+      // grids actually drop this type completely.
+      await LeaveBalanceModel.deleteMany({ leaveType: doc._id });
+      await LeaveTypeModel.findByIdAndDelete(doc._id);
+      res.status(200).json({
+        data: { _id: doc._id, hardDeleted: true },
+        message: `"${doc.name}" deleted.`,
+      });
+      return;
+    }
+
+    // Soft delete — preserve historical refs.
     doc.active = false;
     await doc.save();
-    res.status(200).json({ data: doc });
+    res.status(200).json({
+      data: doc,
+      message: `"${doc.name}" deactivated (past leaves or balances reference it; full removal not possible).`,
+    });
   } catch (error) {
     res.status(500).json({ error });
   }
