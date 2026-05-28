@@ -67,18 +67,46 @@ export const getLeaves = async (req: Request, res: Response) => {
     );
     const { startIndex, query, limit } = options;
 
-    // Exclude leaves belonging to users that aren't visible in HR surfaces:
-    //   - Super Admin: system role, not an employee (never on payroll).
-    //   - Inactive employees: terminated / off-boarded — their historical
-    //     leave records stay in the DB for audit but shouldn't clutter
-    //     the live "All Requests" view or exports.
-    const hiddenUserIds = await UserModel.distinct("_id", {
-      $or: [{ role: UserRole.SuperAdmin }, { active: false }],
-    });
-    const filteredQuery = {
-      ...query,
-      userRef: { $nin: hiddenUserIds },
-    };
+    // Authorisation model for the leaves list:
+    //   - Regular employee → can only ever see their OWN leaves. We
+    //     overwrite `userRef` with their authenticated user id so
+    //     omitting the query-param can't be used to escalate.
+    //   - Admin / super-admin → can see everyone. Apply the visibility
+    //     mask (hide super-admin role + inactive employees) UNLESS the
+    //     caller pinned a specific `userRef` (then their filter wins).
+    //
+    // This closes two bugs at once:
+    //   (a) The old code spread `query` then set `userRef: { $nin: ... }`,
+    //       overwriting an employee's "show my own" filter and exposing
+    //       everyone's history.
+    //   (b) Even with (a) fixed, an employee could omit `userRef` and
+    //       still see the unfiltered list. Now the server forces it.
+    const caller = req.user as UserDoc | undefined;
+    const callerRoles = caller?.role || [];
+    const isAdmin =
+      callerRoles.includes(UserRole.Admin) ||
+      callerRoles.includes(UserRole.SuperAdmin);
+
+    let filteredQuery: Record<string, unknown>;
+    if (!isAdmin) {
+      // Regular employee — pin to self, no exceptions.
+      filteredQuery = {
+        ...query,
+        userRef: caller?._id?.toString(),
+      };
+    } else if (query.userRef !== undefined && query.userRef !== null) {
+      // Admin asked for a specific employee — honour it.
+      filteredQuery = query;
+    } else {
+      // Admin asked for everyone — apply visibility mask.
+      const hiddenUserIds = await UserModel.distinct("_id", {
+        $or: [{ role: UserRole.SuperAdmin }, { active: false }],
+      });
+      filteredQuery = {
+        ...query,
+        userRef: { $nin: hiddenUserIds },
+      };
+    }
 
     const totalDocuments = await LeaveModel.countDocuments(filteredQuery);
     const totalPages = Math.ceil(totalDocuments / limit);
