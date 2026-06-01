@@ -76,10 +76,15 @@ const leaveSchema = new Schema<LeaveDoc>(
       validate: dateValidator,
     },
     reason: { type: String, trim: true },
+    // Legacy denormalized field — kept in sync with `leaveType.name`
+    // at write time (see createLeave / updateLeave). Originally a
+    // hardcoded enum {Sick Leave, Casual Leave, Annual Leave, Other};
+    // dropped the enum + default once the dynamic LeaveType collection
+    // became the source of truth. Without that drop, applying any
+    // non-legacy type (Paid Leave, Medical Leave, etc.) fails Mongoose
+    // validation with `not a valid enum value`.
     type: {
       type: String,
-      enum: Object.values(LeaveType),
-      default: LeaveType.CasualLeave,
     },
     status: {
       type: String,
