@@ -87,12 +87,25 @@ export const getLeaves = async (req: Request, res: Response) => {
       callerRoles.includes(UserRole.Admin) ||
       callerRoles.includes(UserRole.SuperAdmin);
 
+    // Pass `caller._id` (a Mongoose ObjectId) DIRECTLY into the query
+    // rather than `.toString()` it first. Lossless — both `equals()`
+    // and Mongoose auto-cast work with the ObjectId; the string form
+    // relies on Mongoose casting via the schema path, which has
+    // failed to match in some edge cases on this codebase.
+    const callerId = caller?._id;
+
     let filteredQuery: Record<string, unknown>;
     if (!isAdmin) {
-      // Regular employee — pin to self, no exceptions.
+      // Regular employee — pin to self, no exceptions. If the JWT
+      // somehow lacks a usable user id, bail out 401 rather than
+      // silently broadening the query.
+      if (!callerId) {
+        res.status(401).json({ error: "Unauthenticated." });
+        return;
+      }
       filteredQuery = {
         ...query,
-        userRef: caller?._id?.toString(),
+        userRef: callerId,
       };
     } else if (query.userRef !== undefined && query.userRef !== null) {
       // Admin asked for a specific employee — honour it.
@@ -305,9 +318,13 @@ export const createLeave = async (req: Request, res: Response) => {
       }
     }
 
+    // Pass the ObjectId directly. The schema casts strings to
+    // ObjectIds on save, but storing the raw ObjectId removes one
+    // round-trip and keeps the type consistent with how the getLeaves
+    // filter queries.
     const newLeave = new LeaveModel({
       ...req.body,
-      userRef: user._id.toString(),
+      userRef: user._id,
     });
 
     const data = await newLeave.save();
