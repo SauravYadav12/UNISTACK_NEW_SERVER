@@ -18,7 +18,13 @@ import { Request, Response } from "express";
 import {
   OnboardingCandidateModel,
   OnboardingCandidateDoc,
+  OnboardingSignedAdditionalDoc,
 } from "../models/onboardingCandidateModel";
+import {
+  OnboardingDocKind,
+  ONBOARDING_DOC_KINDS,
+  ONBOARDING_DOC_LABELS,
+} from "../models/onboardingDocTemplateModel";
 import {
   validatePublicLinkToken,
   consumePublicLinkToken,
@@ -67,7 +73,57 @@ function publicView(candidate: OnboardingCandidateDoc) {
     formData: candidate.formData,
     offer: candidate.offer,
     stage: candidate.stage,
+    additionalDocSnapshots: candidate.additionalDocSnapshots,
+    additionalSignedDocuments: candidate.additionalSignedDocuments,
   };
+}
+
+/**
+ * Capture the same IP / user-agent / location fields the offer-letter
+ * sign endpoint records, so each additional doc carries its own
+ * digital verification stamp.
+ */
+function captureVerificationMetadata(
+  req: Request,
+): Pick<
+  OnboardingSignedAdditionalDoc,
+  "signedFromIp" | "signedFromUserAgent" | "signedFromLocation"
+> & {
+  geoLocation?: {
+    latitude?: number;
+    longitude?: number;
+    accuracy?: number;
+  };
+} {
+  const xff = req.headers["x-forwarded-for"];
+  const ipFromXff = Array.isArray(xff)
+    ? String(xff[0] || "")
+    : typeof xff === "string"
+      ? xff
+      : "";
+  const ip = (ipFromXff.split(",")[0] || req.ip || "").trim();
+  const ua = req.headers["user-agent"];
+  const out: Partial<OnboardingSignedAdditionalDoc> = {};
+  if (ip) out.signedFromIp = ip;
+  if (typeof ua === "string" && ua) {
+    out.signedFromUserAgent = ua.slice(0, 500);
+  }
+  const geo = (req.body as { geoLocation?: { latitude?: number; longitude?: number; accuracy?: number } })?.geoLocation;
+  if (
+    geo &&
+    typeof geo.latitude === "number" &&
+    typeof geo.longitude === "number" &&
+    Math.abs(geo.latitude) <= 90 &&
+    Math.abs(geo.longitude) <= 180
+  ) {
+    out.signedFromLocation = {
+      latitude: geo.latitude,
+      longitude: geo.longitude,
+      accuracy:
+        typeof geo.accuracy === "number" ? geo.accuracy : undefined,
+    };
+  }
+  return out;
 }
 
 export const resolveToken = async (
@@ -418,6 +474,209 @@ export const signOffer = async (
     });
   } catch (error) {
     console.error("[public-onboarding] sign failed:", (error as Error).message);
+    res.status(500).json({ error: (error as Error).message });
+  }
+};
+
+/**
+ * Sign one of the four additional onboarding documents (Employment
+ * Agreement, Code of Conduct, NDA, Leave Policy). The candidate
+ * works through them sequentially after signing the offer letter —
+ * each "Save & next" hits this endpoint. When the fourth (and final)
+ * doc is signed, the candidate's stage flips to `onboarded` and HR
+ * receives a "fully onboarded" notification.
+ *
+ * Body matches the offer-letter sign endpoint shape (mode + drawn
+ * or typed signature + optional geo). Stage guard: candidate must be
+ * past `offer-signed` (we don't allow additional signing without an
+ * offer signature first).
+ */
+export const signAdditionalDoc = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  const token = String(req.params.token || "");
+  const kind = String(req.params.kind || "") as OnboardingDocKind;
+  if (!rateLimit(token)) {
+    res.status(429).json({ error: "Too many requests. Slow down." });
+    return;
+  }
+  if (!ONBOARDING_DOC_KINDS.includes(kind)) {
+    res.status(400).json({ error: `Unknown doc kind: ${kind}` });
+    return;
+  }
+  try {
+    const result = await validatePublicLinkToken(token, "offer-letter");
+    if (!result.ok) {
+      res.status(410).json({ ok: false, reason: result.reason });
+      return;
+    }
+    const candidate = await OnboardingCandidateModel.findById(
+      result.token.candidateRef,
+    );
+    if (!candidate) {
+      res.status(404).json({ ok: false, reason: "candidate-missing" });
+      return;
+    }
+    // Must have completed the offer letter first — additional docs
+    // are step 2+ of a 5-step flow.
+    if (
+      candidate.stage !== "offer-signed" &&
+      candidate.stage !== "onboarded"
+    ) {
+      res.status(409).json({
+        ok: false,
+        reason: "wrong-stage",
+        stage: candidate.stage,
+      });
+      return;
+    }
+    const snap = (candidate.additionalDocSnapshots || []).find(
+      (s) => s.kind === kind,
+    );
+    if (!snap) {
+      res.status(409).json({
+        ok: false,
+        reason: "no-doc-snapshot",
+      });
+      return;
+    }
+    // Already signed? Idempotent success — the multi-step UI may
+    // hit this endpoint on resume even if the user previously
+    // completed this step.
+    const existing = (candidate.additionalSignedDocuments || []).find(
+      (d) => d.kind === kind,
+    );
+    if (existing) {
+      res.status(200).json({
+        ok: true,
+        data: { candidate: publicView(candidate), alreadySigned: true },
+      });
+      return;
+    }
+
+    const {
+      signatureDataUrl,
+      signedFullName,
+      signatureDate,
+      signatureMode,
+      signatureTypedName,
+    } = (req.body || {}) as {
+      signatureDataUrl?: string;
+      signedFullName?: string;
+      signatureDate?: string;
+      signatureMode?: "drawn" | "typed";
+      signatureTypedName?: string;
+    };
+
+    const mode: "drawn" | "typed" =
+      signatureMode === "typed" ? "typed" : "drawn";
+    if (!signedFullName || !String(signedFullName).trim()) {
+      res.status(400).json({ error: "signedFullName is required." });
+      return;
+    }
+    if (mode === "drawn") {
+      if (
+        !signatureDataUrl ||
+        typeof signatureDataUrl !== "string" ||
+        !signatureDataUrl.startsWith("data:image/") ||
+        signatureDataUrl.length > 5 * 1024 * 1024
+      ) {
+        res
+          .status(400)
+          .json({ error: "Invalid or missing signature image." });
+        return;
+      }
+    } else {
+      if (!signatureTypedName || !String(signatureTypedName).trim()) {
+        res.status(400).json({
+          error: "signatureTypedName is required for a typed signature.",
+        });
+        return;
+      }
+    }
+    // Same exact-match check we run on the offer letter — the name
+    // signed against each doc must match the offer-letter snapshot.
+    const expectedName = candidate.offer?.snapshot?.name || "";
+    if (
+      String(signedFullName).trim().toLowerCase() !==
+      expectedName.trim().toLowerCase()
+    ) {
+      res.status(400).json({
+        error: "Signed name must match the name on the offer letter exactly.",
+      });
+      return;
+    }
+
+    const meta = captureVerificationMetadata(req);
+    const entry: OnboardingSignedAdditionalDoc = {
+      kind,
+      signedAt: new Date(),
+      signatureMode: mode,
+      signatureDataUrl: mode === "drawn" ? signatureDataUrl : undefined,
+      signatureTypedName:
+        mode === "typed" ? String(signatureTypedName).trim() : undefined,
+      signedFullName: String(signedFullName).trim(),
+      signatureDate: signatureDate ? new Date(signatureDate) : new Date(),
+      signedByEmail: candidate.email,
+      signedFromIp: meta.signedFromIp,
+      signedFromUserAgent: meta.signedFromUserAgent,
+      signedFromLocation: meta.signedFromLocation,
+    };
+
+    if (!Array.isArray(candidate.additionalSignedDocuments)) {
+      candidate.additionalSignedDocuments = [];
+    }
+    candidate.additionalSignedDocuments.push(entry);
+    candidate.markModified("additionalSignedDocuments");
+
+    // All four signed? Promote to terminal `onboarded` stage.
+    const signedKinds = new Set(
+      candidate.additionalSignedDocuments.map((d) => d.kind),
+    );
+    const allFourSigned = ONBOARDING_DOC_KINDS.every((k) =>
+      signedKinds.has(k),
+    );
+    let justOnboarded = false;
+    if (allFourSigned && candidate.stage !== "onboarded") {
+      candidate.stage = "onboarded";
+      justOnboarded = true;
+      audit(
+        candidate,
+        "onboarded",
+        null,
+        "All onboarding documents signed.",
+      );
+    }
+    audit(
+      candidate,
+      `signed-${kind}`,
+      null,
+      `Signed ${ONBOARDING_DOC_LABELS[kind]} (${mode})`,
+    );
+    await candidate.save();
+
+    if (justOnboarded) {
+      void notifyAdminsForCandidate({
+        type: "onboarding.completed",
+        title: `${candidate.firstName} ${candidate.lastName} has completed onboarding`,
+        body: `All five onboarding documents are signed. Open Employee Management → Onboarding to review.`,
+        candidateRef: candidate._id,
+      });
+    }
+
+    res.status(200).json({
+      ok: true,
+      data: {
+        candidate: publicView(candidate),
+        justOnboarded,
+      },
+    });
+  } catch (error) {
+    console.error(
+      "[public-onboarding] signAdditional failed:",
+      (error as Error).message,
+    );
     res.status(500).json({ error: (error as Error).message });
   }
 };

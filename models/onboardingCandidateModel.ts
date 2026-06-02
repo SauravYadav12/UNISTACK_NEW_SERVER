@@ -20,6 +20,11 @@
  */
 
 import mongoose, { Document, Schema, Types } from "mongoose";
+import {
+  OnboardingDocKind,
+  ONBOARDING_DOC_KINDS,
+  OnboardingDocSection,
+} from "./onboardingDocTemplateModel";
 
 export type OnboardingStage =
   | "invited"
@@ -29,6 +34,7 @@ export type OnboardingStage =
   | "bg-check-passed"
   | "offer-sent"
   | "offer-signed"
+  | "onboarded"
   | "rejected";
 
 export const ONBOARDING_STAGES: OnboardingStage[] = [
@@ -39,6 +45,7 @@ export const ONBOARDING_STAGES: OnboardingStage[] = [
   "bg-check-passed",
   "offer-sent",
   "offer-signed",
+  "onboarded",
   "rejected",
 ];
 
@@ -53,9 +60,10 @@ export const STAGE_PROGRESS_INDEX: Record<OnboardingStage, number> = {
   "bg-check-passed": 5,
   "offer-sent": 6,
   "offer-signed": 7,
+  onboarded: 8,
   rejected: 0,
 };
-export const ONBOARDING_TOTAL_STEPS = 7;
+export const ONBOARDING_TOTAL_STEPS = 8;
 
 export interface OnboardingReference {
   name?: string;
@@ -147,6 +155,47 @@ export interface OnboardingOffer {
 }
 
 /**
+ * Captured snapshot of an additional onboarding document template
+ * (Employment Agreement / Code of Conduct / NDA / Leave Policy) at
+ * the moment the offer letter was sent. The candidate signs against
+ * these snapshots — subsequent edits to the live template by
+ * super-admin don't retroactively alter an already-sent batch.
+ */
+export interface OnboardingDocTemplateSnapshot {
+  kind: OnboardingDocKind;
+  title: string;
+  preamble: string;
+  sections: OnboardingDocSection[];
+  acknowledgment: string;
+  signatoryName: string;
+  signatoryTitle: string;
+  companyName: string;
+  companyAddress: string;
+  companyEmail: string;
+  companyWebsite: string;
+  directorSignatureDataUrl?: string;
+}
+
+/**
+ * Signed instance of an additional doc. One per kind, appended to
+ * `additionalSignedDocuments` as the candidate works through the
+ * multi-step signing flow.
+ */
+export interface OnboardingSignedAdditionalDoc {
+  kind: OnboardingDocKind;
+  signedAt: Date;
+  signatureMode: "drawn" | "typed";
+  signatureDataUrl?: string;
+  signatureTypedName?: string;
+  signedFullName: string;
+  signatureDate: Date;
+  signedByEmail?: string;
+  signedFromIp?: string;
+  signedFromUserAgent?: string;
+  signedFromLocation?: OnboardingSignedLocation;
+}
+
+/**
  * Single entry in the candidate's audit trail. Captures every state
  * transition + admin action so HR (or a future auditor with read-only
  * access) can see who touched what.
@@ -185,6 +234,14 @@ export interface OnboardingCandidateDoc extends Document {
   bgCheckStartedAt?: Date;
   bgCheckCompletedAt?: Date;
   offer?: OnboardingOffer;
+  // Snapshots of the four additional doc templates captured at
+  // offer-send time so the candidate signs the same wording HR
+  // approved at send-off, regardless of subsequent edits.
+  additionalDocSnapshots?: OnboardingDocTemplateSnapshot[];
+  // The candidate's signed copies of the four additional docs. Built
+  // up across the multi-step signing flow. When this array has all
+  // four kinds present, stage flips to `onboarded`.
+  additionalSignedDocuments?: OnboardingSignedAdditionalDoc[];
   invitedBy: Types.ObjectId;
   auditLog: OnboardingAuditEntry[];
   createdAt: Date;
@@ -281,6 +338,49 @@ const auditEntrySchema = new Schema<OnboardingAuditEntry>(
   { _id: false },
 );
 
+const docSectionSchema = new Schema<OnboardingDocSection>(
+  {
+    heading: { type: String, required: true },
+    body: { type: String, required: true },
+  },
+  { _id: false },
+);
+
+const docTemplateSnapshotSchema = new Schema<OnboardingDocTemplateSnapshot>(
+  {
+    kind: { type: String, required: true, enum: ONBOARDING_DOC_KINDS },
+    title: { type: String, required: true },
+    preamble: { type: String, default: "" },
+    sections: { type: [docSectionSchema], default: [] },
+    acknowledgment: { type: String, default: "" },
+    signatoryName: { type: String, required: true },
+    signatoryTitle: { type: String, required: true },
+    companyName: { type: String, required: true },
+    companyAddress: { type: String, required: true },
+    companyEmail: { type: String, required: true },
+    companyWebsite: { type: String, required: true },
+    directorSignatureDataUrl: { type: String },
+  },
+  { _id: false },
+);
+
+const signedAdditionalDocSchema = new Schema<OnboardingSignedAdditionalDoc>(
+  {
+    kind: { type: String, required: true, enum: ONBOARDING_DOC_KINDS },
+    signedAt: { type: Date, required: true, default: Date.now },
+    signatureMode: { type: String, required: true, enum: ["drawn", "typed"] },
+    signatureDataUrl: { type: String },
+    signatureTypedName: { type: String },
+    signedFullName: { type: String, required: true },
+    signatureDate: { type: Date, required: true },
+    signedByEmail: { type: String },
+    signedFromIp: { type: String },
+    signedFromUserAgent: { type: String },
+    signedFromLocation: { type: signedLocationSchema },
+  },
+  { _id: false },
+);
+
 const offerSchema = new Schema<OnboardingOffer>(
   {
     sentAt: { type: Date },
@@ -322,6 +422,14 @@ const onboardingCandidateSchema = new Schema<OnboardingCandidateDoc>(
     bgCheckStartedAt: { type: Date },
     bgCheckCompletedAt: { type: Date },
     offer: { type: offerSchema },
+    additionalDocSnapshots: {
+      type: [docTemplateSnapshotSchema],
+      default: undefined,
+    },
+    additionalSignedDocuments: {
+      type: [signedAdditionalDocSchema],
+      default: undefined,
+    },
     invitedBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
     auditLog: { type: [auditEntrySchema], default: [] },
   },

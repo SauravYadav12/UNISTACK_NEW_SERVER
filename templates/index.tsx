@@ -16,6 +16,8 @@ import {
   OfferLetterEmailProps,
   OfferAcceptedEmail,
   OfferAcceptedEmailProps,
+  OnboardingRejectedEmail,
+  OnboardingRejectedEmailProps,
 } from "./email/OnboardingEmails";
 
 export function getLeaveRequestTemplate(leave: ILeave) {
@@ -56,4 +58,8 @@ export function getOfferLetterTemplate(p: OfferLetterEmailProps) {
 
 export function getOfferAcceptedTemplate(p: OfferAcceptedEmailProps) {
   return render(<OfferAcceptedEmail {...p} />);
+}
+
+export function getOnboardingRejectedTemplate(p: OnboardingRejectedEmailProps) {
+  return render(<OnboardingRejectedEmail {...p} />);
 }

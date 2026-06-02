@@ -31,8 +31,16 @@ import {
   OnboardingOfferTemplateSnapshot,
   OnboardingOfferSnapshot,
   OnboardingAuditEntry,
+  OnboardingDocTemplateSnapshot,
 } from "../models/onboardingCandidateModel";
 import { OfferLetterTemplateModel } from "../models/offerLetterTemplateModel";
+import {
+  OnboardingDocTemplateModel,
+  OnboardingDocTemplateDoc,
+  OnboardingDocKind,
+  ONBOARDING_DOC_KINDS,
+  DEFAULT_DOC_TEMPLATES,
+} from "../models/onboardingDocTemplateModel";
 import { PublicLinkTokenModel } from "../models/publicLinkTokenModel";
 import { UserModel, UserDoc } from "../models/userModel";
 import { UserRole } from "../enums/UserEnum";
@@ -44,6 +52,7 @@ import {
   getBgCheckStartedTemplate,
   getOfferLetterTemplate,
   getOfferAcceptedTemplate,
+  getOnboardingRejectedTemplate,
 } from "../templates";
 import { issuePublicLinkToken } from "../services/publicLinkTokenService";
 import { emitNotification } from "../services/notificationService";
@@ -105,6 +114,41 @@ function buildFormUrl(token: string) {
 }
 function buildOfferUrl(token: string) {
   return `${FRONTEND}/offer/${token}`;
+}
+
+/**
+ * Best-effort rejection email. Called from every rejection site
+ * (explicit reject + bg-check failure). Non-throwing so an SMTP
+ * hiccup never blocks the stage flip — the audit trail + DB are
+ * always the source of truth, the email is courtesy.
+ */
+async function sendRejectionEmail(
+  candidate: OnboardingCandidateDoc,
+  variant: "bg-check" | "generic",
+): Promise<void> {
+  try {
+    const html = await getOnboardingRejectedTemplate({
+      firstName: candidate.firstName,
+      position: candidate.position,
+      reason:
+        candidate.rejectionReason ||
+        "We're unable to share specifics at this time.",
+      variant,
+    });
+    await sendMail({
+      from: HR_FROM,
+      replyTo: HR_FROM,
+      to: candidate.email,
+      subject: `Update on your application — ${candidate.position}`,
+      html,
+    });
+  } catch (e) {
+    console.error(
+      "[onboarding] rejection email failed for",
+      candidate.candId,
+      (e as Error).message,
+    );
+  }
 }
 
 function summary(doc: OnboardingCandidateDoc) {
@@ -421,6 +465,12 @@ export const completeBgCheck = async (
       );
     }
     await candidate.save();
+    // Email the candidate the moment we save the rejection. Fired
+    // post-save so a transient SMTP issue never causes a half-rejected
+    // state. The helper is non-throwing.
+    if (!passed) {
+      void sendRejectionEmail(candidate, "bg-check");
+    }
     res.status(200).json({ data: summary(candidate) });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
@@ -439,6 +489,63 @@ async function getActiveTemplate() {
     doc = await OfferLetterTemplateModel.create({ active: true });
   }
   return doc;
+}
+
+/**
+ * Fetch the active row for one of the four additional doc templates,
+ * auto-seeding the default content from DEFAULT_DOC_TEMPLATES if no
+ * row exists yet. Called for every kind by `getActiveDocTemplates`
+ * (template editor read) and snapshot helpers (offer-send time).
+ */
+async function getActiveDocTemplate(
+  kind: OnboardingDocKind,
+): Promise<OnboardingDocTemplateDoc> {
+  let doc = await OnboardingDocTemplateModel.findOne({ kind, active: true });
+  if (!doc) {
+    const seed = DEFAULT_DOC_TEMPLATES[kind];
+    doc = await OnboardingDocTemplateModel.create({
+      kind,
+      title: seed.title,
+      preamble: seed.preamble,
+      sections: seed.sections,
+      acknowledgment: seed.acknowledgment,
+      active: true,
+    });
+  }
+  return doc;
+}
+
+function snapshotDocTemplate(
+  t: OnboardingDocTemplateDoc,
+): OnboardingDocTemplateSnapshot {
+  return {
+    kind: t.kind,
+    title: t.title,
+    preamble: t.preamble,
+    sections: t.sections.map((s) => ({ heading: s.heading, body: s.body })),
+    acknowledgment: t.acknowledgment,
+    signatoryName: t.signatoryName,
+    signatoryTitle: t.signatoryTitle,
+    companyName: t.companyName,
+    companyAddress: t.companyAddress,
+    companyEmail: t.companyEmail,
+    companyWebsite: t.companyWebsite,
+    directorSignatureDataUrl: t.directorSignatureDataUrl,
+  };
+}
+
+/**
+ * Snapshot all four additional doc templates in one go. Called from
+ * `sendOffer` so the candidate signs the exact versions of the docs
+ * that HR had active at offer-send time.
+ */
+async function snapshotAllAdditionalDocs(): Promise<OnboardingDocTemplateSnapshot[]> {
+  const snapshots: OnboardingDocTemplateSnapshot[] = [];
+  for (const kind of ONBOARDING_DOC_KINDS) {
+    const t = await getActiveDocTemplate(kind);
+    snapshots.push(snapshotDocTemplate(t));
+  }
+  return snapshots;
 }
 
 function snapshotTemplate(
@@ -501,6 +608,12 @@ export const sendOffer = async (
       snapshot,
       templateAtSendTime: snapshotTemplate(template),
     };
+    // Capture the four additional doc templates so the candidate
+    // signs the same wording HR had active at send-off, even if
+    // super-admin edits the live templates afterward. Reset any
+    // partial signatures from a previous offer cycle.
+    candidate.additionalDocSnapshots = await snapshotAllAdditionalDocs();
+    candidate.additionalSignedDocuments = [];
     candidate.stage = "offer-sent";
     audit(
       candidate,
@@ -636,6 +749,9 @@ export const rejectCandidate = async (
     candidate.rejectionReason = String(reason || "").trim() || "No reason provided.";
     audit(candidate, "rejected", admin, candidate.rejectionReason);
     await candidate.save();
+    // Email the candidate with the reason. Non-blocking — the
+    // rejection is already persisted in the DB.
+    void sendRejectionEmail(candidate, "generic");
     res.status(200).json({ data: summary(candidate) });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
@@ -779,6 +895,106 @@ export const updateOfferLetterTemplate = async (
     );
     const next = await OfferLetterTemplateModel.create({
       ...snapshotTemplate(current),
+      ...patch,
+      active: true,
+      updatedBy: admin._id,
+    });
+    res.status(200).json({ data: next });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// ADDITIONAL DOC TEMPLATES (super-admin only)
+
+/**
+ * Returns the active row of all four additional doc templates. Used
+ * by the multi-template editor — left-rail navigation has one entry
+ * per kind, this endpoint hydrates all four in a single call.
+ */
+export const getOnboardingDocTemplates = async (
+  _req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const docs: Record<string, OnboardingDocTemplateDoc> = {};
+    for (const kind of ONBOARDING_DOC_KINDS) {
+      docs[kind] = await getActiveDocTemplate(kind);
+    }
+    res.status(200).json({ data: docs });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+};
+
+export const updateOnboardingDocTemplate = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const admin = req.user as UserDoc;
+    const kind = String(req.params.kind || "") as OnboardingDocKind;
+    if (!ONBOARDING_DOC_KINDS.includes(kind)) {
+      res.status(400).json({ error: `Unknown doc kind: ${kind}` });
+      return;
+    }
+
+    // Pluck only the fields we accept from the body to avoid mass
+    // assignment. Sections is a structured array; the rest are flat
+    // strings. directorSignatureDataUrl accepts empty string to clear.
+    const body = (req.body || {}) as Record<string, unknown>;
+    const patch: Record<string, unknown> = {};
+    for (const f of [
+      "title",
+      "preamble",
+      "acknowledgment",
+      "signatoryName",
+      "signatoryTitle",
+      "companyName",
+      "companyAddress",
+      "companyEmail",
+      "companyWebsite",
+      "directorSignatureDataUrl",
+    ]) {
+      if (typeof body[f] === "string") patch[f] = body[f];
+    }
+    if (Array.isArray(body.sections)) {
+      const sections = (body.sections as Array<Record<string, unknown>>)
+        .filter(
+          (s) => typeof s?.heading === "string" && typeof s?.body === "string",
+        )
+        .map((s) => ({
+          heading: String(s.heading).trim(),
+          body: String(s.body),
+        }));
+      patch.sections = sections;
+    }
+    if (!Object.keys(patch).length) {
+      res.status(400).json({ error: "No template fields supplied." });
+      return;
+    }
+
+    // Versioned overwrite — mark current inactive, clone its values
+    // and apply patch into a fresh active row.
+    const current = await getActiveDocTemplate(kind);
+    await OnboardingDocTemplateModel.updateOne(
+      { _id: current._id } as AnyFilter,
+      { $set: { active: false } },
+    );
+    const next = await OnboardingDocTemplateModel.create({
+      kind,
+      title: current.title,
+      preamble: current.preamble,
+      sections: current.sections,
+      acknowledgment: current.acknowledgment,
+      signatoryName: current.signatoryName,
+      signatoryTitle: current.signatoryTitle,
+      companyName: current.companyName,
+      companyAddress: current.companyAddress,
+      companyEmail: current.companyEmail,
+      companyWebsite: current.companyWebsite,
+      directorSignatureDataUrl: current.directorSignatureDataUrl,
       ...patch,
       active: true,
       updatedBy: admin._id,

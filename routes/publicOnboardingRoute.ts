@@ -11,6 +11,7 @@ import {
   resolveToken,
   submitForm,
   signOffer,
+  signAdditionalDoc,
 } from "../controllers/publicOnboardingController";
 import { uploadFile } from "../controllers/storageController";
 import { validatePublicLinkToken } from "../services/publicLinkTokenService";
@@ -48,6 +49,15 @@ async function requireOnboardingToken(
 publicOnboardingRoute.get("/:token", resolveToken);
 publicOnboardingRoute.post("/:token/submit-form", submitForm);
 publicOnboardingRoute.post("/:token/sign-offer", signOffer);
+// Sign one of the four additional onboarding documents. The `:kind`
+// path segment validates against the OnboardingDocKind enum inside
+// the controller (employment-agreement, code-of-conduct, nda,
+// leave-policy). The same offer-letter token authorises this — no
+// separate token issuance needed.
+publicOnboardingRoute.post(
+  "/:token/sign-additional/:kind",
+  signAdditionalDoc,
+);
 // Candidate file upload — reuses the same controller as the
 // authenticated /storage/upload/docn route but gated by token.
 publicOnboardingRoute.post(

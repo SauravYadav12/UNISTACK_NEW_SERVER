@@ -27,6 +27,8 @@ import {
   deleteCandidate,
   getOfferLetterTemplateDoc,
   updateOfferLetterTemplate,
+  getOnboardingDocTemplates,
+  updateOnboardingDocTemplate,
 } from "../controllers/onboardingController";
 
 const auth = passport.authenticate("jwt", { session: false });
@@ -92,5 +94,22 @@ onboardingRoute.delete(
 // Offer letter template ───────────────────────────────────────────
 onboardingRoute.get("/template", auth, adminOrSuper, getOfferLetterTemplateDoc);
 onboardingRoute.patch("/template", auth, superOnly, updateOfferLetterTemplate);
+
+// Additional doc templates (Employment Agreement, Code of Conduct,
+// NDA, Leave Policy). GET returns all four active rows in one call.
+// PATCH per kind, super-admin only — same convention as the offer
+// letter template above.
+onboardingRoute.get(
+  "/doc-templates",
+  auth,
+  adminOrSuper,
+  getOnboardingDocTemplates,
+);
+onboardingRoute.patch(
+  "/doc-templates/:kind",
+  auth,
+  superOnly,
+  updateOnboardingDocTemplate,
+);
 
 export { onboardingRoute };

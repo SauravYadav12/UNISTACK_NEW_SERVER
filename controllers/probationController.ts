@@ -97,6 +97,18 @@ export const listPendingProbations = async (
     const userMap = new Map<string, (typeof users)[number]>();
     for (const u of users) userMap.set(String(u._id), u);
 
+    // Pre-compute today at midnight (server local) once so each row's
+    // day-delta math is consistent + cheap. The previous code used a
+    // raw timestamp comparison, which (a) included the wall-clock
+    // fraction in the diff (so the displayed count flickered with
+    // time of day) and (b) didn't carry the intent that "today is
+    // already in progress and shouldn't count as remaining". We fix
+    // both by switching to a date-only midnight-to-midnight diff and
+    // a small +1 adjustment in the remaining direction.
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
+    const todayMidnight = new Date(today);
+    todayMidnight.setHours(0, 0, 0, 0);
+
     const data = profiles
       .filter((p) => userMap.has(String(p.user)))
       .map((p) => {
@@ -112,9 +124,24 @@ export const listPendingProbations = async (
           (p.dateOfJoining
             ? computeProbationOriginalEndDate(new Date(p.dateOfJoining))
             : null);
-        const daysOverdue = orig
-          ? Math.floor((today.getTime() - orig.getTime()) / (24 * 60 * 60 * 1000))
-          : null;
+        let daysOverdue: number | null = null;
+        let overdue = false;
+        if (orig) {
+          const origMidnight = new Date(orig);
+          origMidnight.setHours(0, 0, 0, 0);
+          // Whole-day delta. Math.round absorbs DST 23/25-hour days.
+          const dayDelta = Math.round(
+            (todayMidnight.getTime() - origMidnight.getTime()) / MS_PER_DAY,
+          );
+          overdue = dayDelta >= 0;
+          // Convention: positive = overdue, negative = remaining.
+          // On the remaining side we add 1 so today (the day in
+          // progress) isn't counted toward the "days left" badge —
+          // matches the way HR mentally tracks probation ("joined
+          // yesterday, today already started, so 89 full days remain
+          // until the end date").
+          daysOverdue = overdue ? dayDelta : dayDelta + 1;
+        }
         return {
           userId: String(p.user),
           firstName: u.firstName,
@@ -126,7 +153,7 @@ export const listPendingProbations = async (
           // Negative if the window hasn't elapsed yet, positive if past
           // due. UI uses the sign to colour-code the row.
           daysOverdue,
-          overdue: orig ? orig.getTime() <= today.getTime() : false,
+          overdue,
         };
       });
 

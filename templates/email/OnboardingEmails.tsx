@@ -319,3 +319,101 @@ export const OfferAcceptedEmail = ({
     </Text>
   </Shell>
 );
+
+// ─────────────────────────────────────────────────────────────────────
+// Variant 6 — Candidate rejected (any stage)
+
+export interface OnboardingRejectedEmailProps {
+  firstName: string;
+  position: string;
+  reason: string;
+  /** Where the rejection happened — informs the empathetic copy.
+   *  'bg-check' = background-check failed; anything else = generic
+   *  reject (could be at form, after form, or post-BG-pass). */
+  variant?: "bg-check" | "generic";
+}
+
+export const OnboardingRejectedEmail = ({
+  firstName,
+  position,
+  reason,
+  variant = "generic",
+}: OnboardingRejectedEmailProps) => (
+  <Shell
+    preview={`Update on your application for ${position}`}
+    tag="APPLICATION UPDATE"
+    tagAccent={BRAND.error}
+    candidateFirstName={firstName}
+    intro={
+      variant === "bg-check" ? (
+        <>
+          Thank you for your patience while we completed background
+          verification for the <strong>{position}</strong> role. Unfortunately,
+          we're unable to move forward with your application at this time.
+        </>
+      ) : (
+        <>
+          Thank you for the time you invested in our process for the{" "}
+          <strong>{position}</strong> role. After careful consideration, we've
+          decided not to move forward with your application at this time.
+        </>
+      )
+    }
+  >
+    {/* Reason block — bordered + accent-tinted so it reads as a
+        formal explanation rather than a casual aside. */}
+    <Section
+      style={{
+        margin: "16px 0",
+        padding: "14px 16px",
+        background: `${BRAND.error}0d`,
+        border: `1px solid ${BRAND.error}33`,
+        borderRadius: "8px",
+        borderLeft: `3px solid ${BRAND.error}`,
+      }}
+    >
+      <Text
+        style={{
+          ...emailStyles.text,
+          fontSize: "11px",
+          letterSpacing: "1.2px",
+          textTransform: "uppercase",
+          fontWeight: 700,
+          color: BRAND.error,
+          margin: "0 0 6px 0",
+        }}
+      >
+        Reason
+      </Text>
+      <Text
+        style={{
+          ...emailStyles.text,
+          color: BRAND.text,
+          margin: 0,
+          whiteSpace: "pre-wrap",
+        }}
+      >
+        {reason}
+      </Text>
+    </Section>
+    <Text
+      style={{ ...emailStyles.text, fontSize: "13px", color: BRAND.textMuted }}
+    >
+      We genuinely appreciate the effort you put into engaging with us, and
+      we'd be glad to consider your candidacy again for future roles that
+      match your skills. If you have any questions about this decision,
+      please feel free to reply to this email and our HR team will get
+      back to you.
+    </Text>
+    <Text
+      style={{
+        ...emailStyles.text,
+        fontSize: "13px",
+        color: BRAND.textMuted,
+        marginTop: "12px",
+      }}
+    >
+      Wishing you the very best in your career ahead.
+    </Text>
+  </Shell>
+);
