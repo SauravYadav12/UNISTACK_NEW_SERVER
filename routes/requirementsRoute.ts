@@ -12,6 +12,7 @@ import {
   unassignMarketer,
   searchRequirementByReqID,
   getPipelineCounts,
+  updateRequirementStar,
 } from "../controllers/requirementController";
 const requirementRoute = express.Router();
 import passport from "passport";
@@ -38,6 +39,14 @@ requirementRoute.patch(
   "/update-requirement/:id",
   passport.authenticate("jwt", { session: false }),
   updateRequirement
+);
+
+// Star colour cycle on parent rows — lightweight, no audit log entry,
+// any authenticated team member can change it.
+requirementRoute.patch(
+  "/:id/star",
+  passport.authenticate("jwt", { session: false }),
+  updateRequirementStar
 );
 
 requirementRoute.delete(

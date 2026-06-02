@@ -96,8 +96,16 @@ export const getAllRrequirements = async (req: Request, res: Response) => {
     // reqID, assignee, status, etc.), include children so their result
     // appears. The default unfiltered list keeps children tucked under
     // their parents for the expand/collapse grid.
+    //
+    // `starColor` is a parent-only attribute (children never carry it),
+    // so it is intentionally NOT counted as an "include-all" trigger.
+    // Otherwise the downstream "hide parents that have children" branch
+    // kicks in for `?starColor=green` and removes the very rows we want
+    // to filter, returning an empty grid.
+    const PARENT_ONLY_FILTERS = new Set(["starColor"]);
     const nonPaginationFilterKeys = Object.keys(rest).filter((k) => {
       if (["page", "limit", "sort", "archive"].includes(k)) return false;
+      if (PARENT_ONLY_FILTERS.has(k)) return false;
       const v = rest[k];
       return v !== undefined && v !== null && v !== "";
     });
@@ -1077,3 +1085,46 @@ export const searchRequirementByReqID = async (req: Request, res: Response) => {
 // Unused import guard — referenced to keep tsc happy when assignments body
 // is empty but suffixToIndex is imported for test hooks in other branches.
 void suffixToIndex;
+
+/**
+ * PATCH /requirements/:id/star — cycle the parent-row star colour. This is
+ * deliberately a separate, lightweight endpoint (not folded into the
+ * generic updateRequirement) because:
+ *   - Click-cycling produces a flurry of updates HR doesn't want polluting
+ *     the requirement audit log.
+ *   - The handler can stay tiny: just validate the colour, $set, return.
+ *   - Skip the parent-vs-child fan-out the main update endpoint applies.
+ * Anyone authenticated can hit it (no role gate) — the user's spec says
+ * "anyone from the team should be able to change its colour".
+ */
+const ALLOWED_STAR_COLORS = new Set(["none", "green", "yellow", "orange"]);
+
+export const updateRequirementStar = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const starColor = String((req.body || {}).starColor || "").toLowerCase();
+    if (!ALLOWED_STAR_COLORS.has(starColor)) {
+      res.status(400).json({
+        status: "failed",
+        error: `starColor must be one of: ${[...ALLOWED_STAR_COLORS].join(
+          ", ",
+        )}`,
+      });
+      return;
+    }
+    const doc = await RequirementModel.findByIdAndUpdate(
+      id,
+      { $set: { starColor } },
+      { new: true, projection: { _id: 1, reqID: 1, starColor: 1 } },
+    ).lean();
+    if (!doc) {
+      res
+        .status(404)
+        .json({ status: "failed", error: "Requirement not found." });
+      return;
+    }
+    res.status(200).json({ status: "success", data: doc });
+  } catch (error) {
+    res.status(400).json({ status: "failed", error: getErrorMessage(error) });
+  }
+};

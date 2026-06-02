@@ -192,6 +192,17 @@ const requirementSchema = new mongoose.Schema<RequirementDoc>(
     childSuffix: {
       type: String,
     },
+    // Star colour — a cycle-on-click flag any team member can toggle
+    // on a parent record to mark priority / mood / "needs attention"
+    // (semantics is up to the team). Defaults to 'none' (transparent
+    // outline). Children inherit nothing — only parents carry this.
+    // The list endpoint accepts `?starColor=X` to filter.
+    starColor: {
+      type: String,
+      enum: ["none", "green", "yellow", "orange"],
+      default: "none",
+      index: true,
+    },
     // ── Performance event timestamps (see comment in RequirementDoc above) ──
     _perfSubmittedAt: { type: Date },
     _perfInterviewedAt: { type: Date },
