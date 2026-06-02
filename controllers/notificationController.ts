@@ -96,6 +96,61 @@ export const markRead = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * DELETE /notifications/:id — permanently remove a single notification
+ * belonging to the caller. Hard delete (no soft-delete flag) since the
+ * UI is optimistic; the user only ever sees them again if they re-fire
+ * server-side, which is intentional.
+ */
+export const deleteOne = async (req: Request, res: Response) => {
+  try {
+    const uid = currentUserId(req);
+    if (!uid) {
+      res.status(401).json({ status: "failed", message: "Unauthenticated" });
+      return;
+    }
+    const rawId = req.params.id;
+    const id = Array.isArray(rawId) ? rawId[0] : rawId;
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({ status: "failed", message: "Invalid id" });
+      return;
+    }
+    const result = await NotificationModel.deleteOne({
+      _id: new mongoose.Types.ObjectId(id),
+      recipientRef: uid,
+    });
+    res
+      .status(200)
+      .json({ status: "success", data: { deleted: result.deletedCount ?? 0 } });
+  } catch (error) {
+    res
+      .status(400)
+      .json({ status: "failed", error: getErrorMessage(error) });
+  }
+};
+
+/**
+ * DELETE /notifications — wipe every notification belonging to the
+ * caller. Used by the drawer's "Clear all" affordance. Hard delete.
+ */
+export const deleteAll = async (req: Request, res: Response) => {
+  try {
+    const uid = currentUserId(req);
+    if (!uid) {
+      res.status(401).json({ status: "failed", message: "Unauthenticated" });
+      return;
+    }
+    const result = await NotificationModel.deleteMany({ recipientRef: uid });
+    res
+      .status(200)
+      .json({ status: "success", data: { deleted: result.deletedCount ?? 0 } });
+  } catch (error) {
+    res
+      .status(400)
+      .json({ status: "failed", error: getErrorMessage(error) });
+  }
+};
+
 /** PATCH /notifications/read-all — mark every unread row for me as read. */
 export const markAllRead = async (req: Request, res: Response) => {
   try {
