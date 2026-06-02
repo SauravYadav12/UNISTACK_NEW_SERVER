@@ -16,12 +16,18 @@ import {
 } from "../controllers/probationController";
 
 const auth = passport.authenticate("jwt", { session: false });
-// Admin OR super-admin can call these. The client-side ACL matrix
-// (managed under /access-control) decides which roles see the menu
-// entry. Server stays role-gated at this coarser level so the API
-// can't be hit by a regular employee even if the client gate is
-// bypassed.
-const adminOrSuper = anyRoleGuard(UserRole.Admin, UserRole.SuperAdmin);
+// HR + admin + super-admin can call these. The client-side ACL
+// matrix (managed under /access-control) decides which specific
+// admin / HR users see the menu entry; the server stays role-gated
+// at this coarser level so the API can't be hit by a regular
+// employee even if the client gate is bypassed. HR is included
+// here so super-admin can delegate probation + employee management
+// operations to an HR Coordinator role.
+const adminOrSuper = anyRoleGuard(
+  UserRole.Admin,
+  UserRole.SuperAdmin,
+  UserRole.Hr,
+);
 
 const probationRoute = express.Router();
 

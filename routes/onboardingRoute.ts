@@ -32,7 +32,16 @@ import {
 } from "../controllers/onboardingController";
 
 const auth = passport.authenticate("jwt", { session: false });
-const adminOrSuper = anyRoleGuard(UserRole.Admin, UserRole.SuperAdmin);
+// HR users handle day-to-day onboarding operations (create
+// candidates, request info, send offers, mark BG-check passed/failed,
+// reject candidates). Super-admin retains exclusive access to the
+// destructive + structural operations: hard-delete a candidate
+// (cascades to S3) and edit the document templates.
+const adminOrSuper = anyRoleGuard(
+  UserRole.Admin,
+  UserRole.SuperAdmin,
+  UserRole.Hr,
+);
 const superOnly = roleGuard(UserRole.SuperAdmin);
 
 const onboardingRoute = express.Router();
