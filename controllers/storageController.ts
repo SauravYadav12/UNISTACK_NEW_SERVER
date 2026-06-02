@@ -3,6 +3,7 @@ import {
   PutObjectCommand,
   PutObjectCommandInput,
   PutBucketCorsCommand,
+  DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { Request, Response } from "express";
 import ENV_VARS from "../config/env.config";
@@ -78,3 +79,35 @@ export const uploadFile = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Programmatic delete helper for the S3 bucket — used by onboarding's
+ * candidate-delete flow to clean up uploaded documents alongside the
+ * candidate record. Returns true if the object was removed (or didn't
+ * exist), false on a network/credential error.
+ *
+ * Accepts either a full URL (the same URL stored on the candidate's
+ * formData.documents.* fields) or a raw S3 key.
+ */
+export async function deleteS3ObjectByUrl(url: string): Promise<boolean> {
+  if (!url) return false;
+  // URL pattern produced on upload:
+  //   `${endpoint}/unistack-storage/${key}`
+  // Find the bucket-path marker and take everything after it as the
+  // S3 key. Falls back to the raw input if the marker isn't present.
+  const marker = "/unistack-storage/";
+  const idx = url.indexOf(marker);
+  const key = idx >= 0 ? url.slice(idx + marker.length) : url;
+  if (!key) return false;
+  try {
+    await s3Client.send(
+      new DeleteObjectCommand({
+        Bucket: bucket,
+        Key: key,
+      }),
+    );
+    return true;
+  } catch (err) {
+    console.error("[storage] S3 delete failed for", key, err);
+    return false;
+  }
+}

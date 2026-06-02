@@ -58,6 +58,11 @@ const ENV_VARS = {
   SMTP_PORT: process.env.SMTP_PORT,
 
   COMPANY_EMAIL: process.env.COMPANY_EMAIL,
+  // Optional. When set, onboarding emails (offer, info-request, bg-check,
+  // welcome) use this `from` address so candidates see hr@unicodez.com
+  // rather than the generic company mailbox. Falls back to COMPANY_EMAIL
+  // when unset. Reply-to is set to the same value.
+  HR_EMAIL_FROM: process.env.HR_EMAIL_FROM,
   LEAVE_NOTIFY_EMAILS: process.env.LEAVE_NOTIFY_EMAILS?.split(",")
     .map((e) => e.trim())
     .filter(Boolean),

@@ -46,6 +46,8 @@ import { performanceRoute } from "./routes/performanceRoute";
 import { notificationRoute } from "./routes/notificationRoute";
 import { jobBoardRoute } from "./routes/jobBoardRoutes";
 import { probationRoute } from "./routes/probationRoute";
+import { onboardingRoute } from "./routes/onboardingRoute";
+import { publicOnboardingRoute } from "./routes/publicOnboardingRoute";
 import { initInvoiceDueScheduler } from "./services/invoiceDueScheduler";
 import { initLeaveBalanceSystem } from "./services/leaveBalanceScheduler";
 import { initPerformanceWarningScheduler } from "./services/performanceWarningScheduler";
@@ -123,6 +125,9 @@ app.use("/performance", performanceRoute);
 app.use("/notifications", notificationRoute);
 app.use("/job-search", jobBoardRoute);
 app.use("/probation", probationRoute);
+app.use("/onboarding", onboardingRoute);
+// Public, no-auth onboarding surface — token in URL is the credential.
+app.use("/p/onboarding", publicOnboardingRoute);
 
 // Surface a clear boot-time warning if the Job Boards feature is wired
 // up but the upstream key is missing. Without this, the first search
