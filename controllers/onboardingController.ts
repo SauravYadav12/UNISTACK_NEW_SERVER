@@ -60,7 +60,22 @@ import { deleteS3ObjectByUrl } from "./storageController";
 import ENV_VARS from "../config/env.config";
 
 const FRONTEND = ENV_VARS.FRONTEND_URL || "";
-const HR_FROM = ENV_VARS.HR_EMAIL_FROM || ENV_VARS.COMPANY_EMAIL || "";
+// IMPORTANT — From/Reply-To split for deliverability:
+//
+// webhostbox-flavored cPanel SMTP servers (and most shared hosting MTAs)
+// will silently drop outgoing mail whose `From:` header doesn't match the
+// authenticated SMTP user, because they can only DKIM-sign for the user
+// they validated against. Setting `from: hr@unicodez.com` while
+// authenticating as `info@unicodez.com` produces 250 OK at submission
+// then a silent failure at relay — exactly the symptom the team hit.
+//
+// Fix: send `from: SMTP_USER` (the address the server actually signs)
+// and `replyTo: HR_EMAIL_FROM` so candidate replies still land in the
+// HR inbox. The visible sender in the candidate's Gmail will be
+// `info@unicodez.com`; clicking "Reply" auto-fills `hr@unicodez.com`.
+const MAIL_FROM = ENV_VARS.SMTP_USER || ENV_VARS.COMPANY_EMAIL || "";
+const MAIL_REPLY_TO =
+  ENV_VARS.HR_EMAIL_FROM || ENV_VARS.COMPANY_EMAIL || MAIL_FROM;
 
 // Permissive cast for ad-hoc filter objects — same pattern other
 // controllers use to bypass Mongoose's strict TS on filters that mix
@@ -136,8 +151,8 @@ async function sendRejectionEmail(
       variant,
     });
     await sendMail({
-      from: HR_FROM,
-      replyTo: HR_FROM,
+      from: MAIL_FROM,
+      replyTo: MAIL_REPLY_TO,
       to: candidate.email,
       subject: `Update on your application — ${candidate.position}`,
       html,
@@ -302,8 +317,8 @@ export const createCandidate = async (
         expiresAt: token.expiresAt,
       });
       await sendMail({
-        from: HR_FROM,
-        replyTo: HR_FROM,
+        from: MAIL_FROM,
+        replyTo: MAIL_REPLY_TO,
         to: candidate.email,
         subject: `Welcome to Unicodez — complete your onboarding`,
         html,
@@ -352,8 +367,8 @@ export const requestInfo = async (
       body,
     });
     await sendMail({
-      from: HR_FROM,
-      replyTo: HR_FROM,
+      from: MAIL_FROM,
+      replyTo: MAIL_REPLY_TO,
       to: candidate.email,
       subject,
       html,
@@ -419,8 +434,8 @@ export const startBgCheck = async (
         firstName: candidate.firstName,
       });
       await sendMail({
-        from: HR_FROM,
-        replyTo: HR_FROM,
+        from: MAIL_FROM,
+        replyTo: MAIL_REPLY_TO,
         to: candidate.email,
         subject: "Your background check has been initiated",
         html,
@@ -635,8 +650,8 @@ export const sendOffer = async (
         signUrl: buildOfferUrl(token.token),
       });
       await sendMail({
-        from: HR_FROM,
-        replyTo: HR_FROM,
+        from: MAIL_FROM,
+        replyTo: MAIL_REPLY_TO,
         to: candidate.email,
         subject: `Your offer letter from Unicodez Softcorp`,
         html,
@@ -696,8 +711,8 @@ export const resendLink = async (
           expiresAt: token.expiresAt,
         });
         await sendMail({
-          from: HR_FROM,
-          replyTo: HR_FROM,
+          from: MAIL_FROM,
+          replyTo: MAIL_REPLY_TO,
           to: candidate.email,
           subject: `Welcome to Unicodez — complete your onboarding`,
           html,
@@ -715,8 +730,8 @@ export const resendLink = async (
           signUrl: buildOfferUrl(token.token),
         });
         await sendMail({
-          from: HR_FROM,
-          replyTo: HR_FROM,
+          from: MAIL_FROM,
+          replyTo: MAIL_REPLY_TO,
           to: candidate.email,
           subject: `Your offer letter from Unicodez Softcorp`,
           html,

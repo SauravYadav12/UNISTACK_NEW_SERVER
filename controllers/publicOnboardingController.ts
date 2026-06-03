@@ -34,7 +34,14 @@ import { getOfferAcceptedTemplate } from "../templates";
 import { notifyAdminsForCandidate, audit } from "./onboardingController";
 import ENV_VARS from "../config/env.config";
 
-const HR_FROM = ENV_VARS.HR_EMAIL_FROM || ENV_VARS.COMPANY_EMAIL || "";
+// See the matching comment in onboardingController.ts for the full
+// rationale. tl;dr: webhostbox/cPanel SMTP silently drops when the
+// `From:` header doesn't match the authenticated user. We send from
+// SMTP_USER so the DKIM signature aligns; replies still route to HR
+// via the Reply-To header.
+const MAIL_FROM = ENV_VARS.SMTP_USER || ENV_VARS.COMPANY_EMAIL || "";
+const MAIL_REPLY_TO =
+  ENV_VARS.HR_EMAIL_FROM || ENV_VARS.COMPANY_EMAIL || MAIL_FROM;
 
 // Lightweight per-token in-process rate limiter. 10 req/min ceiling
 // matches the plan. Resets on server restart — acceptable for v1.
@@ -455,8 +462,8 @@ export const signOffer = async (
         startDate: candidate.offer.snapshot.startDate,
       });
       await sendMail({
-        from: HR_FROM,
-        replyTo: HR_FROM,
+        from: MAIL_FROM,
+        replyTo: MAIL_REPLY_TO,
         to: candidate.email,
         subject: "Welcome aboard — we've received your signed offer",
         html,
