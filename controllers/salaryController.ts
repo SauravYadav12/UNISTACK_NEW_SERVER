@@ -239,7 +239,7 @@ export const getMonthlyReportCsv = async (req: Request, res: Response) => {
       "Employee ID", "Name", "Designation", "Country", "Currency",
       "Working Days", "Present Days", "Unpaid Days",
       "Basic", "HRA", "Mobile", "Books", "Special Allow", "Incentives", "Gross",
-      "PF", "TDS", "Other Ded", "LOP Ded", "Total Ded",
+      "PF", "Professional Tax", "TDS", "Other Ded", "LOP Ded", "Total Ded",
       "Net Pay",
     ];
     const esc = (v: unknown) => {
@@ -254,7 +254,8 @@ export const getMonthlyReportCsv = async (req: Request, res: Response) => {
         s.earnings?.basic, s.earnings?.hra, s.earnings?.mobileReimbursement,
         s.earnings?.booksReimbursement, s.earnings?.specialAllowances,
         s.earnings?.incentives, s.earnings?.total,
-        s.deductions?.pf, s.deductions?.tds, s.deductions?.otherDeductions,
+        s.deductions?.pf, s.deductions?.professionalTax, s.deductions?.tds,
+        s.deductions?.otherDeductions,
         s.deductions?.lopDeduction, s.deductions?.total,
         s.netPay,
       ].map(esc).join(","));
@@ -310,11 +311,18 @@ export const updateSlip = async (req: Request, res: Response) => {
 
     if (body.deductions) {
       const d = existing.deductions;
-      for (const k of ["pf", "tds", "otherDeductions", "lopDeduction"] as const) {
+      for (const k of [
+        "pf",
+        "professionalTax",
+        "tds",
+        "otherDeductions",
+        "lopDeduction",
+      ] as const) {
         const v = body.deductions[k];
         if (typeof v === "number" && Number.isFinite(v)) d[k] = Math.max(0, v);
       }
-      d.total = d.pf + d.tds + d.otherDeductions + d.lopDeduction;
+      d.total =
+        d.pf + d.professionalTax + d.tds + d.otherDeductions + d.lopDeduction;
     }
 
     if (body.leaves) {

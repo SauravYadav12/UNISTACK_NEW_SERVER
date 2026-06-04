@@ -293,6 +293,11 @@ export async function computeSalarySlip(
 
   const deductions = {
     pf: config?.pf || 0,
+    // Standard statutory deduction — flat ₹208 / month. `?? 208` (not
+    // `|| 208`) so an explicit zero in a config override stays as zero,
+    // but legacy configs with the field literally undefined still get
+    // the standard amount applied.
+    professionalTax: config?.professionalTax ?? 208,
     tds: config?.tds || 0,
     otherDeductions: config?.otherDeductions || 0,
     lopDeduction,
@@ -300,6 +305,7 @@ export async function computeSalarySlip(
   };
   deductions.total =
     deductions.pf +
+    deductions.professionalTax +
     deductions.tds +
     deductions.otherDeductions +
     deductions.lopDeduction;

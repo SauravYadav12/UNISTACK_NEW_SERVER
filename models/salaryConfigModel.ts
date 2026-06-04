@@ -14,6 +14,10 @@ export interface SalaryConfigDoc extends Document {
   specialAllowances: number;
   incentives: number;
   pf: number;
+  /** Karnataka Professional Tax — standard ₹208 / month for every active
+   *  employee. Schema default applies on read for legacy configs that
+   *  predate this field. */
+  professionalTax: number;
   tds: number;
   otherDeductions: number;
   country: "IN" | "US";
@@ -39,6 +43,9 @@ const salaryConfigSchema = new Schema<SalaryConfigDoc>(
     specialAllowances: { type: Number, default: 0, min: 0 },
     incentives: { type: Number, default: 0, min: 0 },
     pf: { type: Number, default: 0, min: 0 },
+    // Standard ₹208/month — schema default so legacy configs without
+    // the field still resolve to 208 on read and on slip generation.
+    professionalTax: { type: Number, default: 208, min: 0 },
     tds: { type: Number, default: 0, min: 0 },
     otherDeductions: { type: Number, default: 0, min: 0 },
     country: { type: String, enum: ["IN", "US"], default: "IN" },
