@@ -7,6 +7,7 @@ import { LeaveBalanceModel } from "../models/leaveBalanceModel";
 import { LeaveTypeModel } from "../models/leaveTypeModel";
 import { LeaveModel, LeaveDoc, LeaveStatus, LeavePaymentCategory } from "../models/leaveModel";
 import { HolidayModel, HolidayCountry } from "../models/holidayModel";
+import { AttendanceModel, AttendanceStatus } from "../models/attendance";
 import { UserShift } from "../interface/constants";
 import type { SalarySlipDoc } from "../models/salarySlipModel";
 
@@ -249,6 +250,51 @@ export async function computeSalarySlip(
 
   const monthAgg = await aggregateLeaves(userId, monthStart, monthEnd, typeById);
   const ytdAgg = await aggregateLeaves(userId, yearStart, monthEnd, typeById);
+
+  // ── Fold Absent attendance into unpaid days ──
+  // Any day the employee was marked Absent in attendance but DIDN'T file
+  // an approved leave covering that date should count as an unpaid day
+  // (i.e. drive the LOP deduction). Days that ARE covered by a leave are
+  // already handled by `aggregateLeaves` above — skipping them here
+  // avoids double-counting.
+  const approvedLeavesThisMonth = await LeaveModel.find({
+    userRef: userObjId,
+    status: LeaveStatus.Approved,
+    startDate: { $lte: monthEnd },
+    endDate: { $gte: monthStart },
+  } as FilterQuery<LeaveDoc>).lean();
+  const leaveDates = new Set<string>();
+  const monthStartM = moment(monthStart, "YYYY/MM/DD");
+  const monthEndM = moment(monthEnd, "YYYY/MM/DD");
+  for (const l of approvedLeavesThisMonth) {
+    const lStart = moment(l.startDate, "YYYY/MM/DD");
+    const lEnd = moment(l.endDate, "YYYY/MM/DD");
+    const cursor = moment.max(lStart, monthStartM).clone();
+    const limit = moment.min(lEnd, monthEndM);
+    while (cursor.isSameOrBefore(limit)) {
+      leaveDates.add(cursor.format("YYYY/MM/DD"));
+      cursor.add(1, "day");
+    }
+  }
+
+  const absentRecords = await AttendanceModel.find({
+    userRef: userObjId,
+    date: { $gte: monthStart, $lte: monthEnd },
+    status: AttendanceStatus.Absent,
+  } as FilterQuery<Record<string, unknown>>)
+    .select("date")
+    .lean();
+  let absentUnpaidDays = 0;
+  for (const a of absentRecords) {
+    // Already accounted for via the leave path — don't double-count.
+    if (leaveDates.has(a.date)) continue;
+    absentUnpaidDays += 1;
+  }
+  monthAgg.unpaidDays += absentUnpaidDays;
+  // YTD bucket also needs the bump if the month is in-year (which it
+  // always is for monthly slip generation), so the leave summary on the
+  // slip stays internally consistent.
+  ytdAgg.unpaidDays += absentUnpaidDays;
 
   // Aggregate paid / medical buckets from the per-type LeaveBalance docs.
   // "Medical" is identified by a case-insensitive name match on "Medical"

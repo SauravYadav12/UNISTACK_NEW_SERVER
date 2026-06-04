@@ -13,6 +13,9 @@ import {
   getMonthlyReportCsv,
   syncHolidays,
   updateSlip,
+  publishSlip,
+  unpublishSlip,
+  publishSlipsForMonth,
 } from "../controllers/salaryController";
 
 const auth = passport.authenticate("jwt", { session: false });
@@ -45,6 +48,14 @@ salaryRoute.post(
 );
 salaryRoute.get("/slips/:year/:month", auth, adminOrSuper, getSlipsForMonth);
 salaryRoute.patch("/slip/:slipId", auth, adminOrSuper, updateSlip);
+salaryRoute.post("/slip/:slipId/publish", auth, adminOrSuper, publishSlip);
+salaryRoute.post("/slip/:slipId/unpublish", auth, adminOrSuper, unpublishSlip);
+salaryRoute.post(
+  "/publish/:year/:month",
+  auth,
+  adminOrSuper,
+  publishSlipsForMonth,
+);
 salaryRoute.get(
   "/report/:year/:month.csv",
   auth,

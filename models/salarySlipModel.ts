@@ -56,6 +56,15 @@ export interface SalarySlipDoc extends Document {
   netPayWords: string;
   generatedAt: Date;
   generatedBy?: Types.ObjectId;
+  // ── Publish gate ──
+  // Generated slips are HR-internal until explicitly published. Employee
+  // endpoints (`getMySlip` / `getMySlipsList`) filter on this so an
+  // employee never sees a draft slip mid-payroll-review. Re-running
+  // generation for an already-published month preserves the `published`
+  // flag — HR can republish overrides without re-confirming visibility.
+  published: boolean;
+  publishedAt?: Date;
+  publishedBy?: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -113,6 +122,12 @@ const slipSchema = new Schema<SalarySlipDoc>(
     netPayWords: { type: String, default: "" },
     generatedAt: { type: Date, default: Date.now },
     generatedBy: { type: Schema.Types.ObjectId, ref: UserModel },
+    // Publish gate — see interface comment above. Defaults false so a
+    // freshly generated slip is invisible to the employee until HR
+    // clicks Publish on the admin page.
+    published: { type: Boolean, default: false, index: true },
+    publishedAt: { type: Date },
+    publishedBy: { type: Schema.Types.ObjectId, ref: UserModel },
   },
   { timestamps: true },
 );

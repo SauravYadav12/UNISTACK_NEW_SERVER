@@ -84,30 +84,10 @@ export const generateSlipsForMonth = async (req: Request, res: Response) => {
     const ok = results.filter((r) => r.status === "fulfilled").length;
     const failed = results.length - ok;
 
-    // Event 12 — ping every employee whose slip we just generated. Only those
-    // whose generation actually succeeded; failed ones get nothing.
-    const okUserIds: string[] = [];
-    results.forEach((r, i) => {
-      if (r.status === "fulfilled") okUserIds.push(String(users[i]._id));
-    });
-    if (okUserIds.length > 0) {
-      const actor = req.user as UserDoc | undefined;
-      void emitNotification({
-        recipients: okUserIds,
-        type: "SALARY_SLIP_GENERATED",
-        title: `Your payslip for ${month}/${year} is ready`,
-        body: `View and download your salary slip from the Salary page.`,
-        link: { kind: "salary", slipMonth: { year, month } },
-        actor: actor
-          ? {
-              _id: actor._id,
-              name:
-                `${actor.firstName || ""} ${actor.lastName || ""}`.trim() ||
-                actor.email,
-            }
-          : undefined,
-      });
-    }
+    // Notifications are deliberately NOT sent here — generation produces
+    // draft slips that the employee can't see yet. The bell ping fires
+    // from `publishSlipsForMonth` / `publishSlip` once HR has reviewed
+    // and explicitly published the slips.
 
     res.status(200).json({ year, month, ok, failed });
   } catch (error) {
@@ -139,25 +119,9 @@ export const generateSlipForUser = async (req: Request, res: Response) => {
     const { year, month } = currentYearMonth(req);
     const generatedBy = (req.user as UserDoc)._id.toString();
     const slip = await generateForUser(userId, year, month, generatedBy);
-
-    // Event 12 (single-user variant).
-    const actor = req.user as UserDoc | undefined;
-    void emitNotification({
-      recipients: [userId],
-      type: "SALARY_SLIP_GENERATED",
-      title: `Your payslip for ${month}/${year} is ready`,
-      body: `View and download your salary slip from the Salary page.`,
-      link: { kind: "salary", slipMonth: { year, month } },
-      actor: actor
-        ? {
-            _id: actor._id,
-            name:
-              `${actor.firstName || ""} ${actor.lastName || ""}`.trim() ||
-              actor.email,
-          }
-        : undefined,
-    });
-
+    // No bell ping here — slip starts as a draft. The employee finds
+    // out via the `SALARY_SLIP_PUBLISHED` notification emitted by the
+    // publish endpoint after HR signs off.
     res.status(200).json({ data: slip });
   } catch (error) {
     res.status(500).json({ error });
@@ -192,13 +156,16 @@ export const getMySlip = async (req: Request, res: Response) => {
   try {
     const user = req.user as UserDoc;
     const { year, month } = currentYearMonth(req);
+    // Employees see only PUBLISHED slips. Unpublished (draft) slips are
+    // HR-internal — generation runs the numbers, but until an admin
+    // clicks Publish on the salary page the employee gets the "No
+    // payslip" empty state.
     const slip = await SalarySlipModel.findOne({
       user: oid(user._id),
       year,
       month,
+      published: true,
     }).lean();
-    // No on-the-fly computation: employees see only slips HR has generated.
-    // If null, the client renders the "No payslip" empty state.
     res.status(200).json({ data: slip });
   } catch (error) {
     res.status(500).json({ error });
@@ -208,7 +175,12 @@ export const getMySlip = async (req: Request, res: Response) => {
 export const getMySlipsList = async (req: Request, res: Response) => {
   try {
     const user = req.user as UserDoc;
-    const slips = await SalarySlipModel.find({ user: oid(user._id) })
+    // Same publish gate as `getMySlip` — drafts don't appear in the
+    // employee's slip history either.
+    const slips = await SalarySlipModel.find({
+      user: oid(user._id),
+      published: true,
+    })
       .sort({ year: -1, month: -1 })
       .select("year month netPay generatedAt currency")
       .lean();
@@ -346,6 +318,120 @@ export const updateSlip = async (req: Request, res: Response) => {
     res.status(200).json({ data: existing });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
+  }
+};
+
+// ── Publish gate ──
+// `publishSlip` flips one slip; `publishSlipsForMonth` is the bulk path
+// used by the "Publish all" button on the admin salary page. Both fire
+// the SALARY_SLIP_PUBLISHED bell ping so the employee learns about it
+// the moment HR signs off. Already-published slips are skipped (idempotent).
+
+export const publishSlip = async (req: Request, res: Response) => {
+  try {
+    const { slipId } = req.params;
+    const actor = req.user as UserDoc | undefined;
+    const slip = await SalarySlipModel.findById(slipId);
+    if (!slip) {
+      res.status(404).json({ error: "Slip not found" });
+      return;
+    }
+    const wasUnpublished = !slip.published;
+    slip.published = true;
+    slip.publishedAt = new Date();
+    if (actor) slip.publishedBy = actor._id as unknown as Types.ObjectId;
+    await slip.save();
+    if (wasUnpublished) {
+      void emitNotification({
+        recipients: [String(slip.user)],
+        type: "SALARY_SLIP_PUBLISHED",
+        title: `Your payslip for ${slip.month}/${slip.year} is ready`,
+        body: `View and download your salary slip from the Salary page.`,
+        link: { kind: "salary", slipMonth: { year: slip.year, month: slip.month } },
+        actor: actor
+          ? {
+              _id: actor._id,
+              name:
+                `${actor.firstName || ""} ${actor.lastName || ""}`.trim() ||
+                actor.email,
+            }
+          : undefined,
+      });
+    }
+    res.status(200).json({ data: slip.toObject() });
+  } catch (error) {
+    res.status(500).json({ error });
+  }
+};
+
+export const unpublishSlip = async (req: Request, res: Response) => {
+  try {
+    const { slipId } = req.params;
+    const slip = await SalarySlipModel.findById(slipId);
+    if (!slip) {
+      res.status(404).json({ error: "Slip not found" });
+      return;
+    }
+    slip.published = false;
+    // Keep publishedAt / publishedBy as a record of who last published —
+    // resetting them would erase audit history. The `published` flag is
+    // the single source of truth for visibility.
+    await slip.save();
+    res.status(200).json({ data: slip.toObject() });
+  } catch (error) {
+    res.status(500).json({ error });
+  }
+};
+
+export const publishSlipsForMonth = async (req: Request, res: Response) => {
+  try {
+    const { year, month } = currentYearMonth(req);
+    const actor = req.user as UserDoc | undefined;
+    // Only flip the ones that are currently unpublished. Idempotent: if
+    // HR re-clicks "Publish all" the already-published slips don't get
+    // re-stamped, which would otherwise refresh `publishedAt` for no
+    // reason and re-send the bell ping.
+    const drafts = await SalarySlipModel.find({
+      year,
+      month,
+      published: { $ne: true },
+    })
+      .select("_id user")
+      .lean();
+    if (drafts.length === 0) {
+      res.status(200).json({ year, month, published: 0 });
+      return;
+    }
+    const now = new Date();
+    await SalarySlipModel.updateMany(
+      { _id: { $in: drafts.map((d) => d._id) } },
+      {
+        $set: {
+          published: true,
+          publishedAt: now,
+          ...(actor ? { publishedBy: actor._id } : {}),
+        },
+      },
+    );
+    // Bell ping every employee whose slip we just published.
+    void emitNotification({
+      recipients: drafts.map((d) => String(d.user)),
+      type: "SALARY_SLIP_PUBLISHED",
+      title: `Your payslip for ${month}/${year} is ready`,
+      body: `View and download your salary slip from the Salary page.`,
+      link: { kind: "salary", slipMonth: { year, month } },
+      actor: actor
+        ? {
+            _id: actor._id,
+            name:
+              `${actor.firstName || ""} ${actor.lastName || ""}`.trim() ||
+              actor.email,
+          }
+        : undefined,
+    });
+    res.status(200).json({ year, month, published: drafts.length });
+  } catch (error) {
+    res.status(500).json({ error });
   }
 };
 
