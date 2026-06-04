@@ -9,7 +9,7 @@ import { LeaveModel, LeaveDoc, LeaveStatus, LeavePaymentCategory } from "../mode
 import { HolidayModel, HolidayCountry } from "../models/holidayModel";
 import { AttendanceModel, AttendanceStatus } from "../models/attendance";
 import { UserShift } from "../interface/constants";
-import type { SalarySlipDoc } from "../models/salarySlipModel";
+import { SalarySlipModel, type SalarySlipDoc } from "../models/salarySlipModel";
 
 type SlipPayload = Omit<
   SalarySlipDoc,
@@ -416,20 +416,31 @@ export async function computeSalarySlip(
   // rate as the eventual full-month slip.
   const perDayRate = workingDays > 0 ? earnings.total / workingDays : 0;
 
-  // ── Present days + LOP ──
-  // `presentDays` = days actually worked in the effective slice (effective
-  // working days minus in-range leaves/absents).
-  // `lopDays` = everything that ISN'T present, including:
-  //   - in-range leaves marked unpaid + in-range absent days (monthAgg.unpaidDays)
-  //   - days outside the effective slice (pre-DOJ, post-relieving, or
-  //     post-today for incomplete-month generation) — those weren't
-  //     worked so they're treated as LOP.
+  // ── Present days + split LOP ──
+  // Two distinct buckets, surfaced on the slip as two separate lines:
+  //
+  //   - "Leave Deduction" = days the employee ACTUALLY missed inside the
+  //     effective slice (unpaid leaves + absent attendance). This is the
+  //     real LOP and only ever non-zero if the employee was on payroll
+  //     during the day they missed.
+  //
+  //   - "Other Deductions" += contractual proration for days OUTSIDE the
+  //     effective slice — pre-DOJ, post-relieving, or post-today on a
+  //     mid-month preview. These aren't "leaves" — the employee wasn't
+  //     supposed to work those days (or hadn't yet). Lumping them into
+  //     Leave Deduction was misleading ("Satvik took a 18-day leave"
+  //     when really June 5–30 just hadn't happened yet).
+  //
+  // Net pay is unchanged by the split — same numbers, just labeled
+  // honestly.
   const presentDays = Math.max(
     effectiveWorkingDays - monthAgg.unpaidDays,
     0,
   );
-  const lopDays = Math.max(workingDays - presentDays, 0);
-  const lopDeduction = Math.round(perDayRate * lopDays);
+  const inRangeLopDays = monthAgg.unpaidDays;
+  const outOfRangeLopDays = Math.max(workingDays - effectiveWorkingDays, 0);
+  const lopDeduction = Math.round(perDayRate * inRangeLopDays);
+  const prorationDeduction = Math.round(perDayRate * outOfRangeLopDays);
 
   const deductions = {
     pf: config?.pf || 0,
@@ -439,7 +450,10 @@ export async function computeSalarySlip(
     // the standard amount applied.
     professionalTax: config?.professionalTax ?? 208,
     tds: config?.tds || 0,
-    otherDeductions: config?.otherDeductions || 0,
+    // Out-of-range proration (pre-DOJ / post-today / post-relieving)
+    // rolls into Other Deductions — see split comment above. HR's
+    // explicit `otherDeductions` from the config stays additive.
+    otherDeductions: (config?.otherDeductions || 0) + prorationDeduction,
     lopDeduction,
     total: 0,
   };
@@ -461,6 +475,29 @@ export async function computeSalarySlip(
     .join(" ")
     .trim() || user.email;
 
+  // Designation fallback chain:
+  //   1. UserProfile.designation — the canonical place. Set by EditSlip's
+  //      write-back or by direct profile edit.
+  //   2. Most recent prior slip for this user that has a non-empty
+  //      designation — covers the case where the user never had a
+  //      UserProfile row (so the EditSlip write-back silently no-op'd),
+  //      but HR did set a designation on May's slip and now wants June
+  //      to carry it over.
+  // Empty string only falls through when there's no source anywhere.
+  let designation = profile?.designation || "";
+  if (!designation) {
+    const lastSlipWithDesignation = await SalarySlipModel.findOne({
+      user: userObjId,
+      designation: { $ne: "" },
+    })
+      .sort({ year: -1, month: -1 })
+      .select("designation")
+      .lean();
+    if (lastSlipWithDesignation?.designation) {
+      designation = lastSlipWithDesignation.designation;
+    }
+  }
+
   // `presentDays` already computed above using the effective slice.
 
   return {
@@ -469,7 +506,7 @@ export async function computeSalarySlip(
     month,
     employeeName: profile?.name || fullName,
     employeeId: profile?.employeeId || "",
-    designation: profile?.designation || "",
+    designation,
     dateOfJoining: profile?.dateOfJoining || undefined,
     country,
     currency,

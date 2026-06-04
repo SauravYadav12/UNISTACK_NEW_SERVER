@@ -194,14 +194,52 @@ async function overlayCurrentProfileFields<T extends {
   const profileByUser = new Map(
     profiles.map((p) => [String(p.user), p]),
   );
+
+  // Designation backfill — for each user whose profile + this-slip both
+  // come back without a designation, look up the most recent sibling
+  // slip (any month) that has one and use it. Covers the "I set
+  // designation on May's slip but Feb's slip — generated months ago —
+  // still reads empty" case without forcing a regenerate.
+  const usersNeedingDesignation = new Set<string>();
+  for (const s of slips) {
+    const p = profileByUser.get(String(s.user));
+    const profileD = p?.designation || "";
+    const slipD = s.designation || "";
+    if (!profileD && !slipD) {
+      usersNeedingDesignation.add(String(s.user));
+    }
+  }
+  const designationByUser = new Map<string, string>();
+  if (usersNeedingDesignation.size > 0) {
+    const sibling = await SalarySlipModel.find({
+      user: { $in: Array.from(usersNeedingDesignation) },
+      designation: { $ne: "" },
+    } as Record<string, unknown>)
+      .sort({ year: -1, month: -1 })
+      .select("user designation")
+      .lean();
+    // First match per user wins because we sorted desc.
+    for (const sib of sibling) {
+      const key = String(sib.user);
+      if (!designationByUser.has(key) && sib.designation) {
+        designationByUser.set(key, sib.designation);
+      }
+    }
+  }
+
   return slips.map((s) => {
     const p = profileByUser.get(String(s.user));
-    if (!p) return s;
+    const fallbackDesignation = designationByUser.get(String(s.user));
+    if (!p) {
+      return fallbackDesignation
+        ? { ...s, designation: s.designation || fallbackDesignation }
+        : s;
+    }
     return {
       ...s,
       employeeId: p.employeeId || s.employeeId,
       employeeName: p.name || s.employeeName,
-      designation: p.designation || s.designation,
+      designation: p.designation || s.designation || fallbackDesignation || "",
       dateOfJoining: p.dateOfJoining || s.dateOfJoining,
     };
   });
@@ -298,7 +336,8 @@ export const getMonthlyReportCsv = async (req: Request, res: Response) => {
       "Employee ID", "Name", "Designation", "Country", "Currency",
       "Working Days", "Present Days", "Unpaid Days",
       "Basic", "HRA", "Mobile", "Books", "Special Allow", "Incentives", "Gross",
-      "PF", "Professional Tax", "TDS", "Other Ded", "LOP Ded", "Total Ded",
+      // PF deliberately omitted — not a deduction this org uses.
+      "Professional Tax", "TDS", "Other Ded", "LOP Ded", "Total Ded",
       "Net Pay",
     ];
     const esc = (v: unknown) => {
@@ -313,7 +352,7 @@ export const getMonthlyReportCsv = async (req: Request, res: Response) => {
         s.earnings?.basic, s.earnings?.hra, s.earnings?.mobileReimbursement,
         s.earnings?.booksReimbursement, s.earnings?.specialAllowances,
         s.earnings?.incentives, s.earnings?.total,
-        s.deductions?.pf, s.deductions?.professionalTax, s.deductions?.tds,
+        s.deductions?.professionalTax, s.deductions?.tds,
         s.deductions?.otherDeductions,
         s.deductions?.lopDeduction, s.deductions?.total,
         s.netPay,
