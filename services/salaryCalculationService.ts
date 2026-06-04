@@ -251,25 +251,32 @@ export async function computeSalarySlip(
     (user.shift === UserShift.India ? "IN" : user.shift === UserShift.US ? "US" : "IN");
   const currency: "INR" | "USD" = country === "IN" ? "INR" : "USD";
 
-  const totalCalendarDays = daysInMonth(year, month);
+  const totalDays = daysInMonth(year, month);
   const monthStart = moment({ year, month: month - 1, day: 1 }).format("YYYY/MM/DD");
-  const monthEnd = moment({ year, month: month - 1, day: totalCalendarDays })
+  const monthEnd = moment({ year, month: month - 1, day: totalDays })
     .format("YYYY/MM/DD");
   const yearStart = moment({ year, month: 0, day: 1 }).format("YYYY/MM/DD");
 
-  // ── Effective month bounds (DOJ / relievingDate aware) ──
-  // A May slip for someone who joins June must not credit them any
-  // working days. A mid-month joiner (e.g. May 15) should only count
-  // the post-DOJ portion of the month. Same logic on the relieving side
-  // — a slip for the month someone leaves only counts pre-relieving
-  // working days.
+  // ── Full-month vs effective slice ──
+  // `workingDays` is the CONTRACTUAL month (e.g. 22 working days in
+  // June) — it drives the per-day rate calculation and stays the same
+  // regardless of when the employee joined. Then we compute a separate
+  // `effectiveWorkingDays` for the actually-worked slice, clipped by:
+  //   - DOJ (a mid-month joiner only earns from their start day)
+  //   - relievingDate (someone who left mid-month only earns to that day)
+  //   - `today` (mid-month generation for the current month — June 5
+  //     generation only counts June 1–5; the rest of the month hasn't
+  //     happened yet so it can't be "present" yet)
   //
-  // We compute an effective [start, end] inside the calendar month,
-  // clipped by both DOJ and relievingDate, then count weekends and
-  // holidays inside *that* range only. If the clipped range is empty
-  // (joined later this calendar month, or already left earlier), throw
-  // a sentinel that the generator catches to delete the stale slip and
-  // skip the user for this month.
+  // `presentDays = effectiveWorkingDays - inRangeUnpaid` (leaves + absents).
+  // `lopDays = workingDays - presentDays` — this is what the deduction
+  // is based on, so out-of-range days (pre-DOJ, post-today, post-
+  // relieving) naturally show up as LOP without us double-counting them
+  // anywhere else.
+  const weekendDays = countWeekends(year, month);
+  const holidays = await countHolidaysInRange(monthStart, monthEnd, country);
+  const workingDays = Math.max(totalDays - weekendDays - holidays, 0);
+
   const monthStartM = moment(monthStart, "YYYY/MM/DD");
   const monthEndM = moment(monthEnd, "YYYY/MM/DD");
   const dojM = profile?.dateOfJoining
@@ -278,28 +285,34 @@ export async function computeSalarySlip(
   const relievingM = profile?.relievingDate
     ? moment(profile.relievingDate).endOf("day")
     : null;
+  const todayM = moment().endOf("day");
+
   const effStartM =
     dojM && dojM.isAfter(monthStartM) ? dojM : monthStartM.clone();
-  const effEndM =
-    relievingM && relievingM.isBefore(monthEndM)
-      ? relievingM
-      : monthEndM.clone();
+  // Clip the end by EITHER the relieving date OR today, whichever is
+  // earlier. `today` only matters for the current month — for past
+  // months `today > monthEnd` so it's a no-op.
+  let effEndM = monthEndM.clone();
+  if (relievingM && relievingM.isBefore(effEndM)) effEndM = relievingM.clone();
+  if (todayM.isBefore(effEndM)) effEndM = todayM.clone();
 
   if (effStartM.isAfter(effEndM, "day")) {
-    // Pre-DOJ or post-relieving — nothing to compute, no slip should
-    // exist for this user/month.
+    // Pre-DOJ, post-relieving, or future month entirely — no slip
+    // should exist for this user/month. Sentinel caught by the
+    // generator wrapper, which deletes any stale slip and reports
+    // SKIPPED instead of FAILED.
     throw new Error(PRE_DOJ_OR_POST_RELIEVING);
   }
 
   const effStart = effStartM.format("YYYY/MM/DD");
   const effEnd = effEndM.format("YYYY/MM/DD");
-  // `totalDays` on the slip is the COVERED slice — if Satvik joined on
-  // May 15, his May slip shows totalDays=17, not 31. That keeps "per-day
-  // rate" math honest for HR and any downstream LOP calculation.
-  const totalDays = effEndM.diff(effStartM, "days") + 1;
-  const weekendDays = countWeekendsInRange(effStartM, effEndM);
-  const holidays = await countHolidaysInRange(effStart, effEnd, country);
-  const workingDays = Math.max(totalDays - weekendDays - holidays, 0);
+  const effTotalDays = effEndM.diff(effStartM, "days") + 1;
+  const effWeekends = countWeekendsInRange(effStartM, effEndM);
+  const effHolidays = await countHolidaysInRange(effStart, effEnd, country);
+  const effectiveWorkingDays = Math.max(
+    effTotalDays - effWeekends - effHolidays,
+    0,
+  );
 
   // Build `typeById` here (instead of after aggregateLeaves) so it can be
   // threaded into both calls — aggregateLeaves now reads `splitBreakdown`
@@ -307,7 +320,12 @@ export async function computeSalarySlip(
   // days as paid / medical / unpaid.
   const typeById = new Map(allTypes.map((t) => [String(t._id), t]));
 
-  const monthAgg = await aggregateLeaves(userId, monthStart, monthEnd, typeById);
+  // Leave aggregation runs only over the EFFECTIVE slice — pre-DOJ /
+  // post-relieving / post-today days can't have valid leaves for this
+  // employee, and including them would either double-count out-of-range
+  // LOP (which we add below) or attribute leaves to a period they
+  // shouldn't apply to.
+  const monthAgg = await aggregateLeaves(userId, effStart, effEnd, typeById);
   const ytdAgg = await aggregateLeaves(userId, yearStart, monthEnd, typeById);
 
   // ── Fold Absent attendance into unpaid days ──
@@ -315,21 +333,20 @@ export async function computeSalarySlip(
   // an approved leave covering that date should count as an unpaid day
   // (i.e. drive the LOP deduction). Days that ARE covered by a leave are
   // already handled by `aggregateLeaves` above — skipping them here
-  // avoids double-counting.
+  // avoids double-counting. Both queries are scoped to the effective
+  // slice so out-of-range absences/leaves don't fold in twice.
   const approvedLeavesThisMonth = await LeaveModel.find({
     userRef: userObjId,
     status: LeaveStatus.Approved,
-    startDate: { $lte: monthEnd },
-    endDate: { $gte: monthStart },
+    startDate: { $lte: effEnd },
+    endDate: { $gte: effStart },
   } as FilterQuery<LeaveDoc>).lean();
   const leaveDates = new Set<string>();
-  // `monthStartM` / `monthEndM` are already declared at the top of this
-  // function for the DOJ/relieving-bounds logic — reuse them here.
   for (const l of approvedLeavesThisMonth) {
     const lStart = moment(l.startDate, "YYYY/MM/DD");
     const lEnd = moment(l.endDate, "YYYY/MM/DD");
-    const cursor = moment.max(lStart, monthStartM).clone();
-    const limit = moment.min(lEnd, monthEndM);
+    const cursor = moment.max(lStart, effStartM).clone();
+    const limit = moment.min(lEnd, effEndM);
     while (cursor.isSameOrBefore(limit)) {
       leaveDates.add(cursor.format("YYYY/MM/DD"));
       cursor.add(1, "day");
@@ -338,7 +355,7 @@ export async function computeSalarySlip(
 
   const absentRecords = await AttendanceModel.find({
     userRef: userObjId,
-    date: { $gte: monthStart, $lte: monthEnd },
+    date: { $gte: effStart, $lte: effEnd },
     status: AttendanceStatus.Absent,
   } as FilterQuery<Record<string, unknown>>)
     .select("date")
@@ -393,8 +410,26 @@ export async function computeSalarySlip(
     earnings.specialAllowances +
     earnings.incentives;
 
+  // Per-day rate is the contractual rate — divide by FULL-month working
+  // days so a mid-month joiner doesn't have an artificially inflated
+  // per-day rate. A June 5 partial generation shows the same per-day
+  // rate as the eventual full-month slip.
   const perDayRate = workingDays > 0 ? earnings.total / workingDays : 0;
-  const lopDeduction = Math.round(perDayRate * monthAgg.unpaidDays);
+
+  // ── Present days + LOP ──
+  // `presentDays` = days actually worked in the effective slice (effective
+  // working days minus in-range leaves/absents).
+  // `lopDays` = everything that ISN'T present, including:
+  //   - in-range leaves marked unpaid + in-range absent days (monthAgg.unpaidDays)
+  //   - days outside the effective slice (pre-DOJ, post-relieving, or
+  //     post-today for incomplete-month generation) — those weren't
+  //     worked so they're treated as LOP.
+  const presentDays = Math.max(
+    effectiveWorkingDays - monthAgg.unpaidDays,
+    0,
+  );
+  const lopDays = Math.max(workingDays - presentDays, 0);
+  const lopDeduction = Math.round(perDayRate * lopDays);
 
   const deductions = {
     pf: config?.pf || 0,
@@ -426,7 +461,7 @@ export async function computeSalarySlip(
     .join(" ")
     .trim() || user.email;
 
-  const presentDays = Math.max(workingDays - monthAgg.unpaidDays, 0);
+  // `presentDays` already computed above using the effective slice.
 
   return {
     user: userObjId,

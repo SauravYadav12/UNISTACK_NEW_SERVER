@@ -16,10 +16,12 @@ import {
   publishSlip,
   unpublishSlip,
   publishSlipsForMonth,
+  resetSlipsForMonth,
 } from "../controllers/salaryController";
 
 const auth = passport.authenticate("jwt", { session: false });
 const adminOrSuper = anyRoleGuard(UserRole.Admin, UserRole.SuperAdmin);
+const superOnly = anyRoleGuard(UserRole.SuperAdmin);
 const hrOrAdminOrSuper = anyRoleGuard(
   UserRole.Admin,
   UserRole.SuperAdmin,
@@ -55,6 +57,14 @@ salaryRoute.post(
   auth,
   adminOrSuper,
   publishSlipsForMonth,
+);
+// Destructive — super-admin only. Wipes every slip for a month so HR
+// can re-generate from scratch after a misconfiguration.
+salaryRoute.delete(
+  "/slips/:year/:month",
+  auth,
+  superOnly,
+  resetSlipsForMonth,
 );
 salaryRoute.get(
   "/report/:year/:month.csv",

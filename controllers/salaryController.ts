@@ -352,7 +352,18 @@ export const updateSlip = async (req: Request, res: Response) => {
       presentDays: number;
     }>;
 
-    if (typeof body.designation === "string") existing.designation = body.designation;
+    if (typeof body.designation === "string") {
+      existing.designation = body.designation;
+      // Write designation back to the canonical UserProfile so it
+      // persists across regenerations + future months. The slip
+      // overlay (getSlipsForMonth / getMySlip) reads the latest
+      // profile value, so this single write makes the new designation
+      // visible on every prior + future slip immediately.
+      await UserProfileModel.findOneAndUpdate(
+        { user: existing.user } as Record<string, unknown>,
+        { $set: { designation: body.designation } },
+      );
+    }
     if (body.dateOfJoining !== undefined) {
       existing.dateOfJoining = body.dateOfJoining ? new Date(body.dateOfJoining) : undefined;
     }
@@ -517,6 +528,23 @@ export const publishSlipsForMonth = async (req: Request, res: Response) => {
         : undefined,
     });
     res.status(200).json({ year, month, published: drafts.length });
+  } catch (error) {
+    res.status(500).json({ error });
+  }
+};
+
+// Super-admin "panic button" — nuke every slip for a year/month so HR
+// can re-run generation from scratch after a misconfiguration. Limited
+// to super-admin via the route guard; the action is destructive and
+// has no per-row undo, only the destructive intent ("delete N slips")
+// is auditable via the return count.
+export const resetSlipsForMonth = async (req: Request, res: Response) => {
+  try {
+    const { year, month } = currentYearMonth(req);
+    const result = await SalarySlipModel.deleteMany({ year, month });
+    res
+      .status(200)
+      .json({ year, month, deleted: result.deletedCount || 0 });
   } catch (error) {
     res.status(500).json({ error });
   }
