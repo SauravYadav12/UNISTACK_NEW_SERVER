@@ -5,7 +5,12 @@ import { SalarySlipModel } from "../models/salarySlipModel";
 import { UserModel } from "../models/userModel";
 import { UserDoc } from "../interface";
 import { UserRole } from "../enums/UserEnum";
-import { computeSalarySlip, numToIndianWords } from "../services/salaryCalculationService";
+import {
+  computeSalarySlip,
+  numToIndianWords,
+  PRE_DOJ_OR_POST_RELIEVING,
+} from "../services/salaryCalculationService";
+import { UserProfileModel } from "../models/userProfileModel";
 import { syncNationalHolidays } from "../services/holidaySyncService";
 import { emitNotification } from "../services/notificationService";
 
@@ -56,19 +61,39 @@ export const upsertSalaryConfig = async (req: Request, res: Response) => {
   }
 };
 
+// Sentinel result distinct from a real failure — the user wasn't on
+// payroll this month (joined later / already relieved), so we delete
+// any stale slip and report a skip rather than throwing.
+const SKIPPED = Symbol("salary-slip-skipped");
+type GenerateResult = Awaited<
+  ReturnType<typeof SalarySlipModel.findOneAndUpdate>
+> | typeof SKIPPED;
+
 async function generateForUser(
   userId: string,
   year: number,
   month: number,
   generatedBy?: string,
-) {
-  const payload = await computeSalarySlip(userId, year, month);
-  const saved = await SalarySlipModel.findOneAndUpdate(
-    { user: oid(userId), year, month },
-    { $set: { ...payload, user: oid(userId), generatedBy: generatedBy ? oid(generatedBy) : undefined } },
-    { upsert: true, new: true, setDefaultsOnInsert: true },
-  );
-  return saved;
+): Promise<GenerateResult> {
+  try {
+    const payload = await computeSalarySlip(userId, year, month);
+    const saved = await SalarySlipModel.findOneAndUpdate(
+      { user: oid(userId), year, month },
+      { $set: { ...payload, user: oid(userId), generatedBy: generatedBy ? oid(generatedBy) : undefined } },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+    return saved;
+  } catch (err) {
+    if ((err as Error)?.message === PRE_DOJ_OR_POST_RELIEVING) {
+      // Pre-DOJ or post-relieving — kill any stale slip from a previous
+      // run that pre-dated this rule, so the May list stops showing
+      // June joiners (and similar). Return a sentinel so the bulk path
+      // can count this as a skip rather than a generation failure.
+      await SalarySlipModel.deleteOne({ user: oid(userId), year, month });
+      return SKIPPED;
+    }
+    throw err;
+  }
 }
 
 export const generateSlipsForMonth = async (req: Request, res: Response) => {
@@ -81,15 +106,25 @@ export const generateSlipsForMonth = async (req: Request, res: Response) => {
     const results = await Promise.allSettled(
       users.map((u) => generateForUser(String(u._id), year, month, generatedBy)),
     );
-    const ok = results.filter((r) => r.status === "fulfilled").length;
-    const failed = results.length - ok;
+    // A fulfilled `SKIPPED` is a deliberate skip (pre-DOJ / post-
+    // relieving). It's NOT a failure — surface it separately so HR
+    // sees an honest summary instead of a misleading "failed" count.
+    let ok = 0;
+    let skipped = 0;
+    let failed = 0;
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        if (r.value === SKIPPED) skipped++;
+        else ok++;
+      } else failed++;
+    }
 
     // Notifications are deliberately NOT sent here — generation produces
     // draft slips that the employee can't see yet. The bell ping fires
     // from `publishSlipsForMonth` / `publishSlip` once HR has reviewed
     // and explicitly published the slips.
 
-    res.status(200).json({ year, month, ok, failed });
+    res.status(200).json({ year, month, ok, skipped, failed });
   } catch (error) {
     res.status(500).json({ error });
   }
@@ -119,6 +154,15 @@ export const generateSlipForUser = async (req: Request, res: Response) => {
     const { year, month } = currentYearMonth(req);
     const generatedBy = (req.user as UserDoc)._id.toString();
     const slip = await generateForUser(userId, year, month, generatedBy);
+    if (slip === SKIPPED) {
+      res.status(200).json({
+        data: null,
+        skipped: true,
+        reason:
+          "Employee wasn't on payroll for this month (pre-joining or post-relieving).",
+      });
+      return;
+    }
     // No bell ping here — slip starts as a draft. The employee finds
     // out via the `SALARY_SLIP_PUBLISHED` notification emitted by the
     // publish endpoint after HR signs off.
@@ -127,6 +171,41 @@ export const generateSlipForUser = async (req: Request, res: Response) => {
     res.status(500).json({ error });
   }
 };
+
+// Fetch the latest profile snapshot for a list of user ids and overlay
+// `employeeId / employeeName / designation / dateOfJoining` onto each
+// slip in the array. The slip's own fields stay as a historical
+// snapshot in the DB — this overlay only affects the response shape so
+// the admin grid + employee view always show the current values.
+async function overlayCurrentProfileFields<T extends {
+  user: unknown;
+  employeeId?: string;
+  employeeName?: string;
+  designation?: string;
+  dateOfJoining?: Date;
+}>(slips: T[]): Promise<T[]> {
+  if (slips.length === 0) return slips;
+  const userIds = slips.map((s) => s.user);
+  const profiles = await UserProfileModel.find({
+    user: { $in: userIds },
+  } as Record<string, unknown>)
+    .select("user employeeId name designation dateOfJoining")
+    .lean();
+  const profileByUser = new Map(
+    profiles.map((p) => [String(p.user), p]),
+  );
+  return slips.map((s) => {
+    const p = profileByUser.get(String(s.user));
+    if (!p) return s;
+    return {
+      ...s,
+      employeeId: p.employeeId || s.employeeId,
+      employeeName: p.name || s.employeeName,
+      designation: p.designation || s.designation,
+      dateOfJoining: p.dateOfJoining || s.dateOfJoining,
+    };
+  });
+}
 
 export const getSlipsForMonth = async (req: Request, res: Response) => {
   try {
@@ -146,7 +225,10 @@ export const getSlipsForMonth = async (req: Request, res: Response) => {
     })
       .sort({ employeeName: 1 })
       .lean();
-    res.status(200).json({ data: slips });
+    // Overlay current profile fields so HR edits to employeeId / name /
+    // designation reflect immediately without regenerating the slip.
+    const overlaid = await overlayCurrentProfileFields(slips);
+    res.status(200).json({ data: overlaid });
   } catch (error) {
     res.status(500).json({ error });
   }
@@ -166,7 +248,12 @@ export const getMySlip = async (req: Request, res: Response) => {
       month,
       published: true,
     }).lean();
-    res.status(200).json({ data: slip });
+    if (!slip) {
+      res.status(200).json({ data: null });
+      return;
+    }
+    const [overlaid] = await overlayCurrentProfileFields([slip]);
+    res.status(200).json({ data: overlaid });
   } catch (error) {
     res.status(500).json({ error });
   }

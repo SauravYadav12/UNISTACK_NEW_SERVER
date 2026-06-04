@@ -36,6 +36,29 @@ function countWeekends(year: number, month: number): number {
   return count;
 }
 
+// Count Sat/Sun days inside the (inclusive) [startM, endM] range. Used by
+// the DOJ/relieving-date prorating path so a mid-month joiner doesn't
+// get credited working days that pre-date their joining.
+function countWeekendsInRange(
+  startM: moment.Moment,
+  endM: moment.Moment,
+): number {
+  let count = 0;
+  const cursor = startM.clone();
+  while (cursor.isSameOrBefore(endM, "day")) {
+    const day = cursor.day();
+    if (day === 0 || day === 6) count++;
+    cursor.add(1, "day");
+  }
+  return count;
+}
+
+// Sentinel thrown by `computeSalarySlip` when the user wasn't on
+// payroll during the requested month (joined later, or already
+// relieved). Caught by `generateForUser` to delete any stale slip and
+// classify the run as a skip rather than a failure.
+export const PRE_DOJ_OR_POST_RELIEVING = "PRE_DOJ_OR_POST_RELIEVING";
+
 function overlapDays(
   rangeStart: moment.Moment,
   rangeEnd: moment.Moment,
@@ -48,23 +71,19 @@ function overlapDays(
   return diff > 0 ? diff : 0;
 }
 
-async function countHolidays(
-  year: number,
-  month: number,
+async function countHolidaysInRange(
+  rangeStartStr: string,
+  rangeEndStr: string,
   country: "IN" | "US",
 ): Promise<number> {
-  const monthStart = moment({ year, month: month - 1, day: 1 }).format("YYYY/MM/DD");
-  const monthEnd = moment({ year, month: month - 1, day: daysInMonth(year, month) })
-    .format("YYYY/MM/DD");
-
   const holidays = await HolidayModel.find({
     country: { $in: [country, HolidayCountry.ALL] },
-    fromDate: { $lte: monthEnd },
-    toDate: { $gte: monthStart },
+    fromDate: { $lte: rangeEndStr },
+    toDate: { $gte: rangeStartStr },
   }).lean();
 
-  const rangeStart = moment(monthStart, "YYYY/MM/DD");
-  const rangeEnd = moment(monthEnd, "YYYY/MM/DD");
+  const rangeStart = moment(rangeStartStr, "YYYY/MM/DD");
+  const rangeEnd = moment(rangeEndStr, "YYYY/MM/DD");
   let total = 0;
 
   for (const h of holidays) {
@@ -232,15 +251,55 @@ export async function computeSalarySlip(
     (user.shift === UserShift.India ? "IN" : user.shift === UserShift.US ? "US" : "IN");
   const currency: "INR" | "USD" = country === "IN" ? "INR" : "USD";
 
-  const totalDays = daysInMonth(year, month);
-  const weekendDays = countWeekends(year, month);
-  const holidays = await countHolidays(year, month, country);
-  const workingDays = Math.max(totalDays - weekendDays - holidays, 0);
-
+  const totalCalendarDays = daysInMonth(year, month);
   const monthStart = moment({ year, month: month - 1, day: 1 }).format("YYYY/MM/DD");
-  const monthEnd = moment({ year, month: month - 1, day: totalDays })
+  const monthEnd = moment({ year, month: month - 1, day: totalCalendarDays })
     .format("YYYY/MM/DD");
   const yearStart = moment({ year, month: 0, day: 1 }).format("YYYY/MM/DD");
+
+  // ── Effective month bounds (DOJ / relievingDate aware) ──
+  // A May slip for someone who joins June must not credit them any
+  // working days. A mid-month joiner (e.g. May 15) should only count
+  // the post-DOJ portion of the month. Same logic on the relieving side
+  // — a slip for the month someone leaves only counts pre-relieving
+  // working days.
+  //
+  // We compute an effective [start, end] inside the calendar month,
+  // clipped by both DOJ and relievingDate, then count weekends and
+  // holidays inside *that* range only. If the clipped range is empty
+  // (joined later this calendar month, or already left earlier), throw
+  // a sentinel that the generator catches to delete the stale slip and
+  // skip the user for this month.
+  const monthStartM = moment(monthStart, "YYYY/MM/DD");
+  const monthEndM = moment(monthEnd, "YYYY/MM/DD");
+  const dojM = profile?.dateOfJoining
+    ? moment(profile.dateOfJoining).startOf("day")
+    : null;
+  const relievingM = profile?.relievingDate
+    ? moment(profile.relievingDate).endOf("day")
+    : null;
+  const effStartM =
+    dojM && dojM.isAfter(monthStartM) ? dojM : monthStartM.clone();
+  const effEndM =
+    relievingM && relievingM.isBefore(monthEndM)
+      ? relievingM
+      : monthEndM.clone();
+
+  if (effStartM.isAfter(effEndM, "day")) {
+    // Pre-DOJ or post-relieving — nothing to compute, no slip should
+    // exist for this user/month.
+    throw new Error(PRE_DOJ_OR_POST_RELIEVING);
+  }
+
+  const effStart = effStartM.format("YYYY/MM/DD");
+  const effEnd = effEndM.format("YYYY/MM/DD");
+  // `totalDays` on the slip is the COVERED slice — if Satvik joined on
+  // May 15, his May slip shows totalDays=17, not 31. That keeps "per-day
+  // rate" math honest for HR and any downstream LOP calculation.
+  const totalDays = effEndM.diff(effStartM, "days") + 1;
+  const weekendDays = countWeekendsInRange(effStartM, effEndM);
+  const holidays = await countHolidaysInRange(effStart, effEnd, country);
+  const workingDays = Math.max(totalDays - weekendDays - holidays, 0);
 
   // Build `typeById` here (instead of after aggregateLeaves) so it can be
   // threaded into both calls — aggregateLeaves now reads `splitBreakdown`
@@ -264,8 +323,8 @@ export async function computeSalarySlip(
     endDate: { $gte: monthStart },
   } as FilterQuery<LeaveDoc>).lean();
   const leaveDates = new Set<string>();
-  const monthStartM = moment(monthStart, "YYYY/MM/DD");
-  const monthEndM = moment(monthEnd, "YYYY/MM/DD");
+  // `monthStartM` / `monthEndM` are already declared at the top of this
+  // function for the DOJ/relieving-bounds logic — reuse them here.
   for (const l of approvedLeavesThisMonth) {
     const lStart = moment(l.startDate, "YYYY/MM/DD");
     const lEnd = moment(l.endDate, "YYYY/MM/DD");
