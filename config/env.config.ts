@@ -63,6 +63,11 @@ const ENV_VARS = {
   // rather than the generic company mailbox. Falls back to COMPANY_EMAIL
   // when unset. Reply-to is set to the same value.
   HR_EMAIL_FROM: process.env.HR_EMAIL_FROM,
+  // ── NOTE: Friendly sender display names (e.g. "HR Unicodez") are
+  // ── NOT env-driven. They live in `constants/mailSenderNames.ts` so
+  // ── changing a label is a one-line code edit + redeploy, with no
+  // ── risk of one environment drifting from another. Only the
+  // ── address parts (HR_EMAIL_FROM / COMPANY_EMAIL) come from env.
   LEAVE_NOTIFY_EMAILS: process.env.LEAVE_NOTIFY_EMAILS?.split(",")
     .map((e) => e.trim())
     .filter(Boolean),

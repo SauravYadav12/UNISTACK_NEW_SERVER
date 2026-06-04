@@ -10,6 +10,7 @@ import { getHolidayNoticeTemplate } from "../templates";
 import { HolidayNoticeVariables } from "../templates/email/HolidayNotice";
 import { sendMail } from "../utils/mailTransporter";
 import ENV_VARS from "../config/env.config";
+import { mailSenders } from "../utils/mailSenders";
 
 const COMPANY_NAME = "Unicodez Softcorp Private Limited";
 const TZ = "America/New_York";
@@ -153,7 +154,8 @@ export async function sendHolidayNoticesForToday() {
       try {
         const html = await template(vars);
         await sendMail({
-          from: ENV_VARS.COMPANY_EMAIL,
+          from: mailSenders.holiday.from,
+          replyTo: mailSenders.holiday.replyTo,
           to: r.email,
           subject: vars.subject,
           html,

@@ -17,6 +17,7 @@ import {
   listCandidates,
   getCandidate,
   createCandidate,
+  updateCandidateDetails,
   requestInfo,
   markInfoReceived,
   startBgCheck,
@@ -50,6 +51,15 @@ const onboardingRoute = express.Router();
 onboardingRoute.get("/candidates", auth, adminOrSuper, listCandidates);
 onboardingRoute.get("/candidates/:id", auth, adminOrSuper, getCandidate);
 onboardingRoute.post("/candidates", auth, adminOrSuper, createCandidate);
+// Edit the basic AddCandidate fields (name, email, phone, position,
+// start date, salary, probation). Same role gate as the rest of the
+// onboarding admin surface — admin, super-admin, HR.
+onboardingRoute.patch(
+  "/candidates/:id/details",
+  auth,
+  adminOrSuper,
+  updateCandidateDetails,
+);
 onboardingRoute.post(
   "/candidates/:id/request-info",
   auth,

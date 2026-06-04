@@ -11,6 +11,7 @@ import moment from "moment";
 import { AttendanceStatus } from "../models/attendance";
 import { handleMarkAttendance } from "./attendanceController";
 import ENV_VARS from "../config/env.config";
+import { mailSenders } from "../utils/mailSenders";
 import { emitNotification } from "../services/notificationService";
 import {
   getBalance,
@@ -331,8 +332,10 @@ export const createLeave = async (req: Request, res: Response) => {
     const emailHtml = await getLeaveRequestTemplate(data.toObject<ILeave>());
     const recipients = leaveNotifyRecipients();
     const mailOptions = {
-      from: ENV_VARS.COMPANY_EMAIL || user.email,
+      from: mailSenders.leave.from,
       to: recipients.join(", "),
+      // Reply-to stays the requesting user — HR replying goes to the
+      // person who filed the leave, not the generic HR mailbox.
       replyTo: user.email,
       subject: getEmailSubject(user),
       html: emailHtml,
@@ -544,7 +547,7 @@ export const updateLeave = async (req: Request, res: Response) => {
         updatedLeave.emailRefIds?.[updatedLeave.emailRefIds?.length - 1];
 
       const mailOptions: MailOptions = {
-        from: ENV_VARS.COMPANY_EMAIL,
+        from: mailSenders.leave.from,
         to: recepient?.email,
         subject: (lastMailRef ? "Re: " : "") + getEmailSubject(recepient),
         html: emailHtml,

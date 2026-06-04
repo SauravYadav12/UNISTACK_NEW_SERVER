@@ -12,14 +12,15 @@ import { TimesheetModel } from "../models/timesheetModel";
 import { IEmailTemplateBlock } from "../interface/modelInterfaces";
 import { daysOverdue } from "../utils/billingMath";
 import ENV_VARS from "../config/env.config";
+import { mailSenders } from "../utils/mailSenders";
 
-/** Resolve the "from" address. Prefer COMPANY_EMAIL, fall back to SMTP_USER. */
+/**
+ * Resolve the "from" header for invoice mails. Delegates to the
+ * centralised registry — see utils/mailSenders.ts. Display name is
+ * driven by `INVOICE_FROM` env var (defaults to "Unicodez Billing").
+ */
 function fromAddress(): string {
-  return (
-    ENV_VARS.COMPANY_EMAIL ||
-    ENV_VARS.SMTP_USER ||
-    "no-reply@unicodez.local"
-  );
+  return mailSenders.invoice.from || "no-reply@unicodez.local";
 }
 
 function substBlock(

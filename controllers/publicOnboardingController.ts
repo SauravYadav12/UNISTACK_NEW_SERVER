@@ -33,15 +33,16 @@ import { sendMail } from "../utils/mailTransporter";
 import { getOfferAcceptedTemplate } from "../templates";
 import { notifyAdminsForCandidate, audit } from "./onboardingController";
 import ENV_VARS from "../config/env.config";
+import { mailSenders } from "../utils/mailSenders";
 
 // See the matching comment in onboardingController.ts for the full
 // rationale. tl;dr: webhostbox/cPanel SMTP silently drops when the
 // `From:` header doesn't match the authenticated user. We send from
 // SMTP_USER so the DKIM signature aligns; replies still route to HR
 // via the Reply-To header.
-const MAIL_FROM = ENV_VARS.SMTP_USER || ENV_VARS.COMPANY_EMAIL || "";
-const MAIL_REPLY_TO =
-  ENV_VARS.HR_EMAIL_FROM || ENV_VARS.COMPANY_EMAIL || MAIL_FROM;
+// Use the centralised onboarding sender preset (utils/mailSenders.ts).
+const MAIL_FROM = mailSenders.onboarding.from;
+const MAIL_REPLY_TO = mailSenders.onboarding.replyTo;
 
 // Lightweight per-token in-process rate limiter. 10 req/min ceiling
 // matches the plan. Resets on server restart — acceptable for v1.

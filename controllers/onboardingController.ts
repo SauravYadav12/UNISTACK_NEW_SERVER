@@ -58,6 +58,7 @@ import { issuePublicLinkToken } from "../services/publicLinkTokenService";
 import { emitNotification } from "../services/notificationService";
 import { deleteS3ObjectByUrl } from "./storageController";
 import ENV_VARS from "../config/env.config";
+import { mailSenders } from "../utils/mailSenders";
 
 const FRONTEND = ENV_VARS.FRONTEND_URL || "";
 // IMPORTANT — From/Reply-To split for deliverability:
@@ -73,9 +74,12 @@ const FRONTEND = ENV_VARS.FRONTEND_URL || "";
 // and `replyTo: HR_EMAIL_FROM` so candidate replies still land in the
 // HR inbox. The visible sender in the candidate's Gmail will be
 // `info@unicodez.com`; clicking "Reply" auto-fills `hr@unicodez.com`.
-const MAIL_FROM = ENV_VARS.SMTP_USER || ENV_VARS.COMPANY_EMAIL || "";
-const MAIL_REPLY_TO =
-  ENV_VARS.HR_EMAIL_FROM || ENV_VARS.COMPANY_EMAIL || MAIL_FROM;
+// Pull the onboarding-category From/Reply-To from the centralised
+// registry (see utils/mailSenders.ts). Display name + address are
+// driven by ONBOARDING_MAIL_FROM + HR_EMAIL_FROM env vars; sensible
+// defaults apply when unset.
+const MAIL_FROM = mailSenders.onboarding.from;
+const MAIL_REPLY_TO = mailSenders.onboarding.replyTo;
 
 // Permissive cast for ad-hoc filter objects — same pattern other
 // controllers use to bypass Mongoose's strict TS on filters that mix
@@ -334,6 +338,219 @@ export const createCandidate = async (
     res.status(201).json({ data: summary(candidate) });
   } catch (error) {
     console.error("[onboarding] create failed:", (error as Error).message);
+    res.status(500).json({ error: (error as Error).message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// EDIT CANDIDATE DETAILS (super-admin / admin / HR)
+//
+// HR sometimes realises after sending the invite that a name was typed
+// wrong, the email is on the candidate's old domain, the position
+// title needs a tweak, etc. Rather than delete + recreate (which kills
+// any form progress the candidate has already made), this endpoint
+// patches the existing record in place.
+//
+// `?reinvite=true` (or `reinvite: true` in body) additionally:
+//   • Revokes the previous onboarding-form token (so a stale link sent
+//     to the wrong email can't still be used).
+//   • Issues a fresh token + sends a new invite email to the (now
+//     corrected) address.
+// Stage flips back to `invited` when re-inviting from any earlier
+// pre-offer stage so the candidate sees a clean start.
+
+export const updateCandidateDetails = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const id = String(req.params.id || "");
+    if (!Types.ObjectId.isValid(id)) {
+      res.status(400).json({ error: "Invalid id." });
+      return;
+    }
+    const admin = req.user as UserDoc;
+    const candidate = await OnboardingCandidateModel.findById(id);
+    if (!candidate) {
+      res.status(404).json({ error: "Candidate not found." });
+      return;
+    }
+    // Don't allow editing terminal records — they're history.
+    if (candidate.stage === "rejected" || candidate.stage === "onboarded") {
+      res.status(409).json({
+        error: `Cannot edit a candidate in stage "${candidate.stage}".`,
+      });
+      return;
+    }
+
+    const body = (req.body || {}) as Record<string, unknown>;
+    const {
+      firstName,
+      lastName,
+      email,
+      phone,
+      position,
+      proposedStartDate,
+      proposedAnnualSalary,
+      probationMonths,
+    } = body;
+    const reinvite =
+      body.reinvite === true ||
+      body.reinvite === "true" ||
+      req.query.reinvite === "true";
+
+    if (
+      !firstName ||
+      !lastName ||
+      !email ||
+      !position ||
+      !proposedStartDate ||
+      proposedAnnualSalary == null
+    ) {
+      res.status(400).json({
+        error:
+          "firstName, lastName, email, position, proposedStartDate, and proposedAnnualSalary are all required.",
+      });
+      return;
+    }
+    const emailStr = String(email).trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailStr)) {
+      res.status(400).json({ error: "Enter a valid email address." });
+      return;
+    }
+    if (phone) {
+      const phoneDigits = String(phone).replace(/\D/g, "");
+      if (!/^\d{10}$/.test(phoneDigits)) {
+        res.status(400).json({ error: "Phone must be exactly 10 digits." });
+        return;
+      }
+    }
+
+    // Capture a small diff for the audit entry so HR can later see what
+    // was actually changed (and by whom).
+    const changes: string[] = [];
+    const trackChange = (label: string, oldV: unknown, newV: unknown) => {
+      if (String(oldV ?? "") !== String(newV ?? "")) {
+        changes.push(`${label}: "${oldV ?? ""}" → "${newV ?? ""}"`);
+      }
+    };
+    trackChange("firstName", candidate.firstName, firstName);
+    trackChange("lastName", candidate.lastName, lastName);
+    trackChange("email", candidate.email, emailStr.toLowerCase());
+    trackChange("phone", candidate.phone, phone || "");
+    trackChange("position", candidate.position, position);
+    trackChange(
+      "startDate",
+      candidate.proposedStartDate?.toDateString(),
+      new Date(String(proposedStartDate)).toDateString(),
+    );
+    trackChange(
+      "salary",
+      candidate.proposedAnnualSalary,
+      Number(proposedAnnualSalary),
+    );
+    trackChange(
+      "probationMonths",
+      candidate.probationMonths,
+      Number(probationMonths) || 3,
+    );
+
+    candidate.firstName = String(firstName).trim();
+    candidate.lastName = String(lastName).trim();
+    candidate.email = emailStr.toLowerCase();
+    candidate.phone = phone
+      ? String(phone).replace(/\D/g, "")
+      : undefined;
+    candidate.position = String(position).trim();
+    candidate.proposedStartDate = new Date(String(proposedStartDate));
+    candidate.proposedAnnualSalary = Number(proposedAnnualSalary);
+    candidate.probationMonths = Number(probationMonths) || 3;
+
+    if (changes.length) {
+      audit(
+        candidate,
+        "details-updated",
+        admin,
+        changes.join(" · "),
+      );
+    }
+
+    // If asked to re-invite, revoke any active onboarding-form tokens
+    // for this candidate so the old link is dead before issuing a new
+    // one. Stage rewinds to `invited` if we're still in the early
+    // pre-form portion of the lifecycle, since the candidate is being
+    // started fresh.
+    let reinviteSent = false;
+    if (reinvite) {
+      // Best-effort revoke — even if revoke fails, the candidate.email
+      // change above means the new invite goes to the right address.
+      try {
+        await PublicLinkTokenModel.updateMany(
+          {
+            candidateRef: candidate._id,
+            purpose: "onboarding-form",
+            consumedAt: { $exists: false },
+            revokedAt: { $exists: false },
+          } as AnyFilter,
+          { $set: { revokedAt: new Date() } },
+        );
+      } catch (e) {
+        console.error(
+          "[onboarding] revoke-on-reinvite failed:",
+          (e as Error).message,
+        );
+      }
+      // Reset to `invited` only if the candidate hasn't progressed
+      // past the form yet — preserves later stages so we don't roll
+      // someone in bg-check back to invited unexpectedly.
+      if (
+        candidate.stage === "invited" ||
+        candidate.stage === "form-submitted" ||
+        candidate.stage === "info-requested"
+      ) {
+        candidate.stage = "invited";
+      }
+    }
+
+    await candidate.save();
+
+    if (reinvite) {
+      try {
+        const token = await issuePublicLinkToken({
+          candidateRef: candidate._id,
+          purpose: "onboarding-form",
+        });
+        const html = await getOnboardingInviteTemplate({
+          firstName: candidate.firstName,
+          position: candidate.position,
+          formUrl: buildFormUrl(token.token),
+          expiresAt: token.expiresAt,
+        });
+        await sendMail({
+          from: MAIL_FROM,
+          replyTo: MAIL_REPLY_TO,
+          to: candidate.email,
+          subject: `Welcome to Unicodez — complete your onboarding`,
+          html,
+        });
+        // Audit the resend separately so HR can see it as its own
+        // line item (in addition to the details-update entry above).
+        audit(candidate, "link-resent-onboarding", admin);
+        await candidate.save();
+        reinviteSent = true;
+      } catch (e) {
+        console.error(
+          "[onboarding] re-invite email failed:",
+          (e as Error).message,
+        );
+      }
+    }
+
+    res.status(200).json({
+      data: { ...summary(candidate), reinviteSent },
+    });
+  } catch (error) {
+    console.error("[onboarding] update details failed:", (error as Error).message);
     res.status(500).json({ error: (error as Error).message });
   }
 };

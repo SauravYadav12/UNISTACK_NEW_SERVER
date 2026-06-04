@@ -17,6 +17,7 @@ import {
 } from "../utils/mailTransporter";
 import { Request, Response } from "express";
 import ENV_VARS from "../config/env.config";
+import { mailSenders } from "../utils/mailSenders";
 import { UserRole } from "../enums/UserEnum";
 
 export function extractIUser(user: UserDoc) {
@@ -326,7 +327,8 @@ export const sendOtpToResetPassword = async (req: Request, res: Response) => {
       return;
     }
     const mailOptions = {
-      from: ENV_VARS.COMPANY_EMAIL,
+      from: mailSenders.otp.from,
+      replyTo: mailSenders.otp.replyTo,
       to: email,
       subject: "One time password",
       html: resetPasswordOtpTemplate(otp),
@@ -352,7 +354,8 @@ export const sendOtpToLogin = async (req: Request, res: Response) => {
       return;
     }
     const mailOptions = {
-      from: ENV_VARS.COMPANY_EMAIL,
+      from: mailSenders.otp.from,
+      replyTo: mailSenders.otp.replyTo,
       to: email,
       subject: "One time password",
       html: loginOtpTemplate(otp),
