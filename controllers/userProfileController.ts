@@ -44,6 +44,21 @@ export const createUserProfile = async (req: Request, res: Response) => {
     // rules apply correctly. Caller-supplied dateOfJoining (HR backdating
     // an actual start) is respected.
     const incoming = (req.body || {}) as Record<string, unknown>;
+    // Defensive cleanup: drop an empty-string `_id` so Mongoose doesn't
+    // try to cast "" → ObjectId (which fails with CastError), and strip
+    // whitespace / separators from phone numbers so the schema's strict
+    // regex doesn't reject inputs the user typed with spaces.
+    if (typeof incoming._id === "string" && incoming._id.trim() === "") {
+      delete incoming._id;
+    }
+    const normPhone = (v: unknown) =>
+      typeof v === "string" ? v.replace(/[\s()\-.]/g, "") : v;
+    if (typeof incoming.phoneNumber === "string") {
+      incoming.phoneNumber = normPhone(incoming.phoneNumber);
+    }
+    if (typeof incoming.emergencyPhoneNumber === "string") {
+      incoming.emergencyPhoneNumber = normPhone(incoming.emergencyPhoneNumber);
+    }
     const dojFromBody = incoming.dateOfJoining
       ? new Date(String(incoming.dateOfJoining))
       : undefined;
@@ -116,9 +131,26 @@ export const updateUserProfileById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
+    // Mirror the create-path sanitization so phone numbers typed with
+    // spaces ("+91 98232 32434") never get persisted as-is and trip
+    // the schema's `match` regex on any later operation that runs
+    // validators (e.g. a future findOneAndUpdate with runValidators).
+    const body = (req.body || {}) as Record<string, unknown>;
+    if (typeof body._id === "string" && body._id.trim() === "") {
+      delete body._id;
+    }
+    const normPhone = (v: unknown) =>
+      typeof v === "string" ? v.replace(/[\s()\-.]/g, "") : v;
+    if (typeof body.phoneNumber === "string") {
+      body.phoneNumber = normPhone(body.phoneNumber);
+    }
+    if (typeof body.emergencyPhoneNumber === "string") {
+      body.emergencyPhoneNumber = normPhone(body.emergencyPhoneNumber);
+    }
+
     const updatedUserProfile = await UserProfileModel.findByIdAndUpdate(
       id,
-      req.body,
+      body,
       { new: true }
     );
 
