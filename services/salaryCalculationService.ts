@@ -419,19 +419,19 @@ export async function computeSalarySlip(
     }
   }
 
-  // ── Earnings are pro-rated to the effective slice ──
-  // The previous model showed full-month earnings (e.g. ₹25,000) and
-  // stuffed the "days not yet worked" charge into Other Deductions.
-  // That worked mathematically — netPay was correct — but for low-CTC
-  // employees with HR-set `otherDeductions`, the deduction line could
-  // visually exceed the gross. Confusing.
+  // ── Calendar-day payroll model ──
+  // Full-time employees are paid a FIXED monthly salary that covers
+  // every day of the month, weekends and holidays included. So the
+  // per-day rate is just `monthly / days-in-month`:
+  //   May → 37,812 / 31 = ₹1,220 per day
+  //   Feb → 37,812 / 28 = ₹1,351 per day
+  // Pro-ration for mid-month joiners / mid-month relievings uses the
+  // SAME calendar yardstick: ratio = effectiveCalendarDays / totalDays.
+  // So someone who joins May 15 earns 17/31 of the monthly, regardless
+  // of how many Saturdays fall in those 17 days.
   //
-  // Now: each earnings component is scaled by effectiveWorkingDays /
-  // workingDays. So a June 5 mid-month preview shows ~18% of the
-  // contractual monthly. The "rest of the month" isn't shown anywhere
-  // as a deduction — it's simply NOT in the gross. Per-day rate uses
-  // contractual / full-month so the per-day amount stays consistent
-  // across previews and the eventual full-month slip.
+  // We still COMPUTE `workingDays` and `effectiveWorkingDays` above for
+  // the slip's reference display, but no payroll math depends on them.
   const contractualTotal =
     (config?.basic || 0) +
     (config?.hra || 0) +
@@ -439,8 +439,8 @@ export async function computeSalarySlip(
     (config?.booksReimbursement || 0) +
     (config?.specialAllowances || 0) +
     (config?.incentives || 0);
-  const perDayRate = workingDays > 0 ? contractualTotal / workingDays : 0;
-  const earningsRatio = workingDays > 0 ? effectiveWorkingDays / workingDays : 0;
+  const perDayRate = totalDays > 0 ? contractualTotal / totalDays : 0;
+  const earningsRatio = totalDays > 0 ? effTotalDays / totalDays : 0;
   const earnings = {
     basic: Math.round((config?.basic || 0) * earningsRatio),
     hra: Math.round((config?.hra || 0) * earningsRatio),
@@ -465,15 +465,12 @@ export async function computeSalarySlip(
     earnings.incentives;
 
   // ── Present days + LOP ──
-  // `presentDays` = effective working days minus in-range unpaid (real
-  // leaves + absent attendance days the employee actually missed).
-  // `lopDeduction` only ever covers real misses — out-of-range days
+  // `presentDays` = effective CALENDAR days minus in-range unpaid days
+  // (real leaves + absent attendance the employee actually missed).
+  // `lopDeduction` covers only real misses — out-of-range days
   // (pre-DOJ, post-today, post-relieving) are already absent from the
   // pro-rated gross so they aren't deducted twice.
-  const presentDays = Math.max(
-    effectiveWorkingDays - monthAgg.unpaidDays,
-    0,
-  );
+  const presentDays = Math.max(effTotalDays - monthAgg.unpaidDays, 0);
   const inRangeLopDays = monthAgg.unpaidDays;
   const lopDeduction = Math.round(perDayRate * inRangeLopDays);
 
