@@ -475,67 +475,160 @@ export const updateCandidateDetails = async (
       );
     }
 
-    // If asked to re-invite, revoke any active onboarding-form tokens
-    // for this candidate so the old link is dead before issuing a new
-    // one. Stage rewinds to `invited` if we're still in the early
-    // pre-form portion of the lifecycle, since the candidate is being
-    // started fresh.
+    // ── Stage-aware re-invite ──
+    // The candidate's current stage determines what kind of link is
+    // resent (and whether anything is resent at all):
+    //
+    //   invited / form-submitted / info-requested → onboarding form link
+    //     (early lifecycle; stage rewinds to `invited` so the candidate
+    //     can re-submit the form against the new details)
+    //
+    //   offer-sent → offer-letter link with a REVISED snapshot
+    //     (re-stamp candidate.offer.snapshot with the new salary /
+    //     position / dates so the freshly-issued link serves the
+    //     correct numbers; revoke the old offer-letter token; reset any
+    //     mid-flight signature state so the candidate signs the new
+    //     terms; audit as `link-resent-offer`).
+    //
+    //   bg-check / bg-check-passed / offer-signed → no link to resend.
+    //     (Details are still saved, but no email goes out. HR uses the
+    //     stage-specific action panel button — e.g. "Generate offer
+    //     letter" — for those flows.)
+    //
+    // `reinviteKind` is returned to the client so a precise toast can
+    // be shown ("revised offer letter sent" vs. generic).
+    type ReinviteKind = "onboarding-form" | "offer-letter" | null;
     let reinviteSent = false;
+    let reinviteKind: ReinviteKind = null;
+
     if (reinvite) {
-      // Best-effort revoke — even if revoke fails, the candidate.email
-      // change above means the new invite goes to the right address.
-      try {
-        await PublicLinkTokenModel.updateMany(
-          {
-            candidateRef: candidate._id,
-            purpose: "onboarding-form",
-            consumedAt: { $exists: false },
-            revokedAt: { $exists: false },
-          } as AnyFilter,
-          { $set: { revokedAt: new Date() } },
-        );
-      } catch (e) {
-        console.error(
-          "[onboarding] revoke-on-reinvite failed:",
-          (e as Error).message,
-        );
-      }
-      // Reset to `invited` only if the candidate hasn't progressed
-      // past the form yet — preserves later stages so we don't roll
-      // someone in bg-check back to invited unexpectedly.
-      if (
-        candidate.stage === "invited" ||
-        candidate.stage === "form-submitted" ||
-        candidate.stage === "info-requested"
-      ) {
+      const stage = candidate.stage;
+      const isPreFormStage =
+        stage === "invited" ||
+        stage === "form-submitted" ||
+        stage === "info-requested";
+
+      if (isPreFormStage) {
+        reinviteKind = "onboarding-form";
+        // Best-effort revoke of old onboarding-form tokens so the
+        // previous link goes dead before a new one is issued.
+        try {
+          await PublicLinkTokenModel.updateMany(
+            {
+              candidateRef: candidate._id,
+              purpose: "onboarding-form",
+              consumedAt: { $exists: false },
+              revokedAt: { $exists: false },
+            } as AnyFilter,
+            { $set: { revokedAt: new Date() } },
+          );
+        } catch (e) {
+          console.error(
+            "[onboarding] revoke onboarding-form failed:",
+            (e as Error).message,
+          );
+        }
+        // Roll back to `invited` so the candidate restarts cleanly.
         candidate.stage = "invited";
+      } else if (stage === "offer-sent") {
+        reinviteKind = "offer-letter";
+        // Re-snapshot the existing offer with the just-edited values.
+        // Anything not part of the editable form (offer.snapshot.name)
+        // is preserved if present so HR's manual override on the
+        // original send isn't lost.
+        if (candidate.offer) {
+          const prevName = candidate.offer.snapshot?.name;
+          candidate.offer.snapshot = {
+            name:
+              prevName ||
+              `${candidate.firstName} ${candidate.lastName}`.trim(),
+            position: candidate.position,
+            startDate: candidate.proposedStartDate || new Date(),
+            annualSalary: candidate.proposedAnnualSalary || 0,
+            probationMonths: candidate.probationMonths || 3,
+          };
+          candidate.offer.sentAt = new Date();
+          // Old signature state is invalidated by the revision — the
+          // candidate is signing different terms now. Same goes for
+          // any partially-signed additional docs from a previous
+          // round of this offer (employment agreement, NDA, etc.).
+          candidate.offer.signedAt = undefined;
+          candidate.offer.signatureDataUrl = undefined;
+          candidate.offer.signatureDate = undefined;
+          candidate.offer.signedFullName = undefined;
+          candidate.offer.signatureMode = undefined;
+          candidate.offer.signatureTypedName = undefined;
+          candidate.offer.signedByEmail = undefined;
+          candidate.offer.signedFromIp = undefined;
+          candidate.offer.signedFromUserAgent = undefined;
+          candidate.offer.signedFromLocation = undefined;
+          candidate.additionalSignedDocuments = [];
+          candidate.additionalDocSnapshots = await snapshotAllAdditionalDocs();
+        }
+        // Revoke any active offer-letter tokens so the old (stale-
+        // salary) URL is dead before the candidate clicks it.
+        try {
+          await PublicLinkTokenModel.updateMany(
+            {
+              candidateRef: candidate._id,
+              purpose: "offer-letter",
+              consumedAt: { $exists: false },
+              revokedAt: { $exists: false },
+            } as AnyFilter,
+            { $set: { revokedAt: new Date() } },
+          );
+        } catch (e) {
+          console.error(
+            "[onboarding] revoke offer-letter failed:",
+            (e as Error).message,
+          );
+        }
       }
+      // bg-check / bg-check-passed / offer-signed: reinviteKind stays
+      // null. No email goes out. The detail edits are still persisted
+      // by the candidate.save() below.
     }
 
     await candidate.save();
 
-    if (reinvite) {
+    if (reinvite && reinviteKind) {
       try {
         const token = await issuePublicLinkToken({
           candidateRef: candidate._id,
-          purpose: "onboarding-form",
+          purpose: reinviteKind,
         });
-        const html = await getOnboardingInviteTemplate({
-          firstName: candidate.firstName,
-          position: candidate.position,
-          formUrl: buildFormUrl(token.token),
-          expiresAt: token.expiresAt,
-        });
-        await sendMail({
-          from: MAIL_FROM,
-          replyTo: MAIL_REPLY_TO,
-          to: candidate.email,
-          subject: `Welcome to Unicodez — complete your onboarding`,
-          html,
-        });
-        // Audit the resend separately so HR can see it as its own
-        // line item (in addition to the details-update entry above).
-        audit(candidate, "link-resent-onboarding", admin);
+        if (reinviteKind === "onboarding-form") {
+          const html = await getOnboardingInviteTemplate({
+            firstName: candidate.firstName,
+            position: candidate.position,
+            formUrl: buildFormUrl(token.token),
+            expiresAt: token.expiresAt,
+          });
+          await sendMail({
+            from: MAIL_FROM,
+            replyTo: MAIL_REPLY_TO,
+            to: candidate.email,
+            subject: `Welcome to Unicodez — complete your onboarding`,
+            html,
+          });
+          audit(candidate, "link-resent-onboarding", admin);
+        } else {
+          // offer-letter
+          const html = await getOfferLetterTemplate({
+            firstName: candidate.firstName,
+            position:
+              candidate.offer?.snapshot.position || candidate.position,
+            signUrl: buildOfferUrl(token.token),
+          });
+          await sendMail({
+            from: MAIL_FROM,
+            replyTo: MAIL_REPLY_TO,
+            to: candidate.email,
+            subject: `Your revised offer letter from Unicodez Softcorp`,
+            html,
+          });
+          audit(candidate, "link-resent-offer", admin);
+        }
         await candidate.save();
         reinviteSent = true;
       } catch (e) {
@@ -547,7 +640,7 @@ export const updateCandidateDetails = async (
     }
 
     res.status(200).json({
-      data: { ...summary(candidate), reinviteSent },
+      data: { ...summary(candidate), reinviteSent, reinviteKind },
     });
   } catch (error) {
     console.error("[onboarding] update details failed:", (error as Error).message);
