@@ -110,6 +110,10 @@ interface LeaveTypeForAgg {
   paid?: boolean;
   code?: string;
   name?: string;
+  /** Per-month allowance baked into the leave type. Null = uncapped
+   *  (UL, ML without a cap). Used as a fallback when the per-user
+   *  balance row doesn't override. */
+  monthlyQuota?: number | null;
 }
 
 function isMedicalType(t: LeaveTypeForAgg | undefined): boolean {
@@ -379,17 +383,39 @@ export async function computeSalarySlip(
   let paidUsedFromBalances = 0;
   let medicalAccrued = 0;
   let medicalUsedFromBalances = 0;
+  // Monthly entitlement = whatever the LeaveBalance row says the user
+  // gets per month (per-user override > leave-type default). Falls back
+  // to `allocated / 12` when neither is set so the slip never shows a
+  // misleading zero for users on legacy balance rows.
+  let paidMonthlyQuota = 0;
+  let medicalMonthlyQuota = 0;
   for (const b of balances) {
     const t = typeById.get(String(b.leaveType));
     if (!t) continue;
     if (t.isUnpaidBucket) continue;
     const isMedical = isMedicalType(t);
+    // Resolve the effective per-month allowance for this leave type:
+    //   1. Per-user override on the balance row (b.monthlyQuota).
+    //   2. Leave-type default (t.monthlyQuota).
+    //   3. Pro-rata across 12 months from the annual allocation.
+    //   4. 0 if even that's missing.
+    const perUserQuota =
+      typeof b.monthlyQuota === "number" ? b.monthlyQuota : null;
+    const typeQuota =
+      typeof t.monthlyQuota === "number" ? t.monthlyQuota : null;
+    const annual = b.allocated || 0;
+    const resolvedMonthly =
+      perUserQuota ??
+      typeQuota ??
+      (annual > 0 ? annual / 12 : 0);
     if (isMedical) {
-      medicalAccrued += b.allocated || 0;
+      medicalAccrued += annual;
       medicalUsedFromBalances += b.used || 0;
+      medicalMonthlyQuota += resolvedMonthly;
     } else if (t.paid) {
-      paidAccrued += b.allocated || 0;
+      paidAccrued += annual;
       paidUsedFromBalances += b.used || 0;
+      paidMonthlyQuota += resolvedMonthly;
     }
   }
 
@@ -525,12 +551,22 @@ export async function computeSalarySlip(
     earnings,
     deductions,
     leaves: {
+      // YTD figures — retained for historical slips + internal calc.
+      // The printable slip now prefers the monthly fields below.
       paidAccrued,
       paidUsed: Math.max(ytdAgg.paidUsed, paidUsedFromBalances),
       paidBalance: Math.max(paidAccrued - Math.max(ytdAgg.paidUsed, paidUsedFromBalances), 0),
       medicalAccrued,
       medicalUsed: Math.max(ytdAgg.medicalUsed, medicalUsedFromBalances),
       medicalBalance: Math.max(medicalAccrued - Math.max(ytdAgg.medicalUsed, medicalUsedFromBalances), 0),
+      // ── This month ──
+      // What the employee was entitled to in the payroll period and
+      // what they actually used. These are what the slip shows so the
+      // employee can't mis-read a YTD balance as available-now.
+      paidMonthlyQuota,
+      paidUsedThisMonth: monthAgg.paidUsed,
+      medicalMonthlyQuota,
+      medicalUsedThisMonth: monthAgg.medicalUsed,
       unpaidDays: monthAgg.unpaidDays,
       bonusPaid: 0,
       bonusMedical: 0,

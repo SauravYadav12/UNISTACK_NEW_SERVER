@@ -21,12 +21,23 @@ export interface SalarySlipDeductions {
 }
 
 export interface SalarySlipLeaveBreakdown {
+  // YTD figures — retained for back-compat with already-generated slips.
+  // The printable slip no longer surfaces them prominently to avoid
+  // the "8 yearly available, employee assumes no LOP" confusion.
   paidAccrued: number;
   paidUsed: number;
   paidBalance: number;
   medicalAccrued: number;
   medicalUsed: number;
   medicalBalance: number;
+  // ── This-month-only figures ──
+  // What the employee is ENTITLED to and USED in the payroll period.
+  // The renderer prefers these when present. Optional so reads of
+  // legacy slips don't break.
+  paidMonthlyQuota?: number;
+  paidUsedThisMonth?: number;
+  medicalMonthlyQuota?: number;
+  medicalUsedThisMonth?: number;
   unpaidDays: number;
   bonusPaid: number;
   bonusMedical: number;
@@ -107,12 +118,19 @@ const slipSchema = new Schema<SalarySlipDoc>(
       total: { type: Number, default: 0 },
     },
     leaves: {
+      // YTD figures — back-compat for legacy slips. Not surfaced on
+      // the printable slip anymore.
       paidAccrued: { type: Number, default: 0 },
       paidUsed: { type: Number, default: 0 },
       paidBalance: { type: Number, default: 0 },
       medicalAccrued: { type: Number, default: 0 },
       medicalUsed: { type: Number, default: 0 },
       medicalBalance: { type: Number, default: 0 },
+      // ── This-month figures ──
+      paidMonthlyQuota: { type: Number, default: 0 },
+      paidUsedThisMonth: { type: Number, default: 0 },
+      medicalMonthlyQuota: { type: Number, default: 0 },
+      medicalUsedThisMonth: { type: Number, default: 0 },
       unpaidDays: { type: Number, default: 0 },
       bonusPaid: { type: Number, default: 0 },
       bonusMedical: { type: Number, default: 0 },
