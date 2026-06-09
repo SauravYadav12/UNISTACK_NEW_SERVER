@@ -432,14 +432,24 @@ export async function computeSalarySlip(
   //
   // We still COMPUTE `workingDays` and `effectiveWorkingDays` above for
   // the slip's reference display, but no payroll math depends on them.
-  const contractualTotal =
+  // Two contractual totals:
+  //   - `contractualTotal` drives pro-rated gross display (covers
+  //     mid-month joiners / mid-month relievings).
+  //   - `contractualBaseForLop` is what the per-day rate divides — it
+  //     EXCLUDES incentives so HR doesn't dock an employee's
+  //     performance bonus for sick days. Incentives stay in the gross
+  //     and continue to be paid in full (subject to the same
+  //     pro-ration as everything else for partial-month tenures).
+  const contractualBaseForLop =
     (config?.basic || 0) +
     (config?.hra || 0) +
     (config?.mobileReimbursement || 0) +
     (config?.booksReimbursement || 0) +
-    (config?.specialAllowances || 0) +
-    (config?.incentives || 0);
-  const perDayRate = totalDays > 0 ? contractualTotal / totalDays : 0;
+    (config?.specialAllowances || 0);
+  const contractualTotal =
+    contractualBaseForLop + (config?.incentives || 0);
+  const perDayRate =
+    totalDays > 0 ? contractualBaseForLop / totalDays : 0;
   const earningsRatio = totalDays > 0 ? effTotalDays / totalDays : 0;
   const earnings = {
     basic: Math.round((config?.basic || 0) * earningsRatio),
@@ -465,12 +475,20 @@ export async function computeSalarySlip(
     earnings.incentives;
 
   // ── Present days + LOP ──
-  // `presentDays` = effective CALENDAR days minus in-range unpaid days
-  // (real leaves + absent attendance the employee actually missed).
-  // `lopDeduction` covers only real misses — out-of-range days
-  // (pre-DOJ, post-today, post-relieving) are already absent from the
-  // pro-rated gross so they aren't deducted twice.
-  const presentDays = Math.max(effTotalDays - monthAgg.unpaidDays, 0);
+  // `presentDays` describes WORKING-DAY attendance for the slip's
+  // attendance summary — `effectiveWorkingDays − in-range unpaid`.
+  // For a full-month, full-tenure employee with 5 unpaid days in May,
+  // it reads as "20 working days, 15 present, 5 unpaid" — what HR and
+  // the employee both expect.
+  //
+  // The per-day rate (above) intentionally uses calendar days because
+  // the salary is paid for every day of the month including weekends,
+  // but that's an internal math detail. The attendance line on the
+  // slip stays grounded in working days.
+  const presentDays = Math.max(
+    effectiveWorkingDays - monthAgg.unpaidDays,
+    0,
+  );
   const inRangeLopDays = monthAgg.unpaidDays;
   const lopDeduction = Math.round(perDayRate * inRangeLopDays);
 
