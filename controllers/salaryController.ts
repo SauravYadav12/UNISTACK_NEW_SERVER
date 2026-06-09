@@ -65,6 +65,9 @@ export const upsertSalaryConfig = async (req: Request, res: Response) => {
 // payroll this month (joined later / already relieved), so we delete
 // any stale slip and report a skip rather than throwing.
 const SKIPPED = Symbol("salary-slip-skipped");
+// Sentinel for "skipped because the slip is already published". Only
+// the bulk path emits this — the per-user endpoint regenerates regardless.
+const PUBLISHED_SKIPPED = Symbol("salary-slip-published-skipped");
 type GenerateResult = Awaited<
   ReturnType<typeof SalarySlipModel.findOneAndUpdate>
 > | typeof SKIPPED;
@@ -103,18 +106,50 @@ export const generateSlipsForMonth = async (req: Request, res: Response) => {
     const users = await UserModel.find({ active: true, ...NOT_SUPER_ADMIN_FILTER })
       .select("_id")
       .lean();
-    const results = await Promise.allSettled(
-      users.map((u) => generateForUser(String(u._id), year, month, generatedBy)),
+
+    // Bulk regen NEVER touches an already-published slip. HR has
+    // explicitly signed off on those — the candidate already sees the
+    // numbers — so silently overwriting them on a re-run is hostile.
+    // The per-user endpoint (`generateSlipForUser`) still regenerates
+    // published slips on demand; that's the supported "republish"
+    // workflow when HR wants to push corrected numbers to a specific
+    // employee.
+    const publishedUserIds = new Set(
+      (
+        await SalarySlipModel.find({ year, month, published: true })
+          .select("user")
+          .lean()
+      ).map((s) => String(s.user)),
     );
-    // A fulfilled `SKIPPED` is a deliberate skip (pre-DOJ / post-
-    // relieving). It's NOT a failure — surface it separately so HR
-    // sees an honest summary instead of a misleading "failed" count.
+
+    // The bulk path returns one of three sentinels OR a saved doc per
+    // user. Widen the result type so the comparison below typechecks
+    // without casting through `unknown`.
+    type BulkResult =
+      | GenerateResult
+      | typeof PUBLISHED_SKIPPED;
+    const results = await Promise.allSettled<BulkResult>(
+      users.map(async (u): Promise<BulkResult> => {
+        const id = String(u._id);
+        if (publishedUserIds.has(id)) {
+          // Sentinel separate from SKIPPED so the response can break
+          // down "skipped because pre-DOJ" vs "skipped because already
+          // published" — both legitimate, but they tell HR different
+          // things about who they may want to revisit.
+          return PUBLISHED_SKIPPED;
+        }
+        return generateForUser(id, year, month, generatedBy);
+      }),
+    );
+
     let ok = 0;
     let skipped = 0;
+    let publishedSkipped = 0;
     let failed = 0;
     for (const r of results) {
       if (r.status === "fulfilled") {
         if (r.value === SKIPPED) skipped++;
+        else if (r.value === PUBLISHED_SKIPPED) publishedSkipped++;
         else ok++;
       } else failed++;
     }
@@ -124,7 +159,9 @@ export const generateSlipsForMonth = async (req: Request, res: Response) => {
     // from `publishSlipsForMonth` / `publishSlip` once HR has reviewed
     // and explicitly published the slips.
 
-    res.status(200).json({ year, month, ok, skipped, failed });
+    res
+      .status(200)
+      .json({ year, month, ok, skipped, publishedSkipped, failed });
   } catch (error) {
     res.status(500).json({ error });
   }
