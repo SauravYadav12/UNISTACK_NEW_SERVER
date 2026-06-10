@@ -16,6 +16,7 @@ import {
   getYearBalances,
   updateAllocation,
   triggerYearlyReset,
+  reseedUserBalances,
 } from "../controllers/leaveBalanceController";
 
 const auth = passport.authenticate("jwt", { session: false });
@@ -46,5 +47,11 @@ leaveBalanceRoute.patch(
   updateAllocation,
 );
 leaveBalanceRoute.post("/reset/:year", auth, adminOrSuper, triggerYearlyReset);
+leaveBalanceRoute.post(
+  "/reseed/:userId/:year",
+  auth,
+  adminOrSuper,
+  reseedUserBalances,
+);
 
 export { leaveBalanceRoute };

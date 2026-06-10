@@ -7,6 +7,7 @@ import {
   resetBalancesForYear,
   computeMonthlyAvailable,
   effectiveMonthlyQuota,
+  seedBalancesForUser,
 } from "../services/leaveBalanceService";
 import { LeaveTypeDoc } from "../models/leaveTypeModel";
 
@@ -154,5 +155,23 @@ export const triggerYearlyReset = async (req: Request, res: Response) => {
     res.status(200).json({ data: result });
   } catch (error) {
     res.status(500).json({ error });
+  }
+};
+
+// Per-user re-seed — overwrites the user's LeaveBalance rows for the
+// given year with the current LeaveType defaults (allocated + monthly
+// quota). Used by the "Reseed" button in LeavesManagement to migrate a
+// single employee to a freshly updated policy without nuking everyone
+// at once. Calls into the same `seedBalancesForUser` helper used by
+// new-joiner onboarding and probation confirmation.
+export const reseedUserBalances = async (req: Request, res: Response) => {
+  try {
+    const userId = str(req.params.userId);
+    const year = yearOf(req);
+    const force = req.query.force !== "false"; // default true for this endpoint
+    const result = await seedBalancesForUser(userId, year, { force });
+    res.status(200).json({ data: result });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
   }
 };

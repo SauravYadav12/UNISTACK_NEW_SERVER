@@ -260,7 +260,7 @@ export const createLeave = async (req: Request, res: Response) => {
       const [profile, type] = await Promise.all([
         UserProfileModel.findOne(profileFilter).select("dateOfJoining").lean(),
         LeaveTypeModel.findById(req.body.leaveType)
-          .select("isUnpaidBucket name code")
+          .select("isUnpaidBucket name code requiresAttachment")
           .lean(),
       ]);
       const doj = (profile as { dateOfJoining?: Date } | null)?.dateOfJoining;
@@ -278,6 +278,24 @@ export const createLeave = async (req: Request, res: Response) => {
           probation: { onProbation: true, probationEnd: endDate },
         });
         return;
+      }
+      // ── Attachment requirement (e.g. Medical Leave) ──
+      // The React form gates Submit on this too, but enforcing it
+      // server-side closes the back-door for direct API calls and
+      // legacy clients. The check is "at least one non-empty URL" so
+      // an empty `[""]` array doesn't slip through.
+      if (type?.requiresAttachment) {
+        const attachments = Array.isArray(req.body.attachments)
+          ? req.body.attachments.filter(
+              (a: unknown) => typeof a === "string" && a.trim() !== "",
+            )
+          : [];
+        if (attachments.length === 0) {
+          res.status(400).json({
+            error: `${type.name} requires supporting documentation. Please attach a medical certificate or doctor's note before submitting.`,
+          });
+          return;
+        }
       }
     }
 

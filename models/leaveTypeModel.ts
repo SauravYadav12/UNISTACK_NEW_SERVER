@@ -13,6 +13,10 @@ export interface LeaveTypeDoc extends Document {
   // `defaultAllocationPerYear`. Null/undefined means no monthly cap (UL, ML).
   monthlyQuota?: number | null;
   isUnpaidBucket: boolean;
+  /** When true, the ApplyLeave dialog requires at least one attachment
+   *  before submit, and the server enforces the same. Used by Medical
+   *  Leave so HR has supporting documentation on file. */
+  requiresAttachment: boolean;
   active: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -39,6 +43,7 @@ const leaveTypeSchema = new Schema<LeaveTypeDoc>(
     defaultAllocationPerYear: { type: Number, default: 0, min: 0 },
     monthlyQuota: { type: Number, default: null, min: 0 },
     isUnpaidBucket: { type: Boolean, default: false },
+    requiresAttachment: { type: Boolean, default: false },
     active: { type: Boolean, default: true },
   },
   { timestamps: true },
@@ -65,11 +70,14 @@ export const DEFAULT_LEAVE_TYPES: Array<Partial<LeaveTypeDoc>> = [
   // Monthly-capped: 1 day/month accrual, carried forward within the year.
   // `monthlyQuota` is the per-user-per-month rate. CL/SL keep 1.5 (legacy
   // policy); PL is 1/mo per the company's current allocation policy.
-  { name: "Paid Leave", code: "PL", paid: true, defaultAllocationPerYear: 10, monthlyQuota: 1, color: "#EC4599" },
+  // Company policy: 12 paid + 12 medical per year, 1/month each.
+  // Carry-forward of unused months stays within the calendar year.
+  { name: "Paid Leave", code: "PL", paid: true, defaultAllocationPerYear: 12, monthlyQuota: 1, color: "#EC4599" },
   { name: "Casual Leave", code: "CL", paid: true, defaultAllocationPerYear: 0, monthlyQuota: 1.5, color: "#37B7EA" },
   { name: "Sick Leave", code: "SL", paid: true, defaultAllocationPerYear: 0, monthlyQuota: 1.5, color: "#F59E0B" },
-  // ML has no monthly cap per product decision — full annual bucket available.
-  { name: "Medical Leave", code: "ML", paid: true, defaultAllocationPerYear: 10, monthlyQuota: null, color: "#10B981" },
+  // ML now mirrors PL: 12/yr, 1/mo accrual. Supporting medical
+  // documentation is mandatory on apply.
+  { name: "Medical Leave", code: "ML", paid: true, defaultAllocationPerYear: 12, monthlyQuota: 1, requiresAttachment: true, color: "#10B981" },
   // UL is uncapped and always visible.
   { name: "Unpaid Leave", code: "UL", paid: false, defaultAllocationPerYear: 0, monthlyQuota: null, isUnpaidBucket: true, color: "#5E7687" },
 ];

@@ -140,6 +140,71 @@ async function migrateLeaveTypeMonthlyQuotas() {
   );
 }
 
+// Company policy bumped from 10 → 12 yearly for both PL and ML, with
+// ML now also accruing 1/mo (previously uncapped). This migration:
+//   - bumps the LeaveType defaults from 10 → 12 (only if still on the
+//     old default, so admin customizations like "15" stay intact)
+//   - sets ML.monthlyQuota = 1 (only if still null, ditto)
+//   - bumps any LeaveBalance row whose `allocated` is still exactly 10
+//     (= the old default) up to 12, so existing employees see 12/12
+//     without waiting for HR to click Force Reset
+// All conditions are exact-match against the old default, so an admin
+// who set a per-user override to 8 or 15 keeps it. Safe to re-run.
+async function migrateLeaveTypeYearlyTo12() {
+  type AnyUpdateResult = {
+    modifiedCount?: number;
+    nModified?: number;
+    n?: number;
+  };
+  function modified(r: unknown): number {
+    const x = r as AnyUpdateResult | undefined;
+    return x?.modifiedCount ?? x?.nModified ?? 0;
+  }
+
+  // 1. LeaveType row policy bump — only when the existing value matches
+  //    the OLD default exactly. Anything else means an admin touched it.
+  const typeBump = await LeaveTypeModel.updateMany(
+    { code: { $in: ["PL", "ML"] }, defaultAllocationPerYear: 10 },
+    { $set: { defaultAllocationPerYear: 12 } },
+  );
+  const typeBumped = modified(typeBump);
+  if (typeBumped) {
+    console.log(
+      `[leave-balance] Bumped ${typeBumped} LeaveType row(s) from 10 → 12 yearly`,
+    );
+  }
+  // Also set ML monthly accrual to 1/mo when still null (= old policy).
+  const mlQuotaBump = await LeaveTypeModel.updateMany(
+    { code: "ML", monthlyQuota: null },
+    { $set: { monthlyQuota: 1 } },
+  );
+  const mlBumped = modified(mlQuotaBump);
+  if (mlBumped) {
+    console.log(
+      `[leave-balance] Set ML.monthlyQuota = 1 on ${mlBumped} LeaveType row(s)`,
+    );
+  }
+
+  // 2. Bump existing employee balances still on the old 10-day cap.
+  //    Looked up by leaveType ref to avoid hard-coding ObjectIds.
+  const targetTypes = await LeaveTypeModel.find(
+    { code: { $in: ["PL", "ML"] } },
+    { _id: 1, code: 1 },
+  ).lean();
+  if (targetTypes.length === 0) return;
+  const typeIds = targetTypes.map((t) => t._id);
+  const balanceBump = await LeaveBalanceModel.updateMany(
+    { leaveType: { $in: typeIds }, allocated: 10 },
+    { $set: { allocated: 12 } },
+  );
+  const balancesBumped = modified(balanceBump);
+  if (balancesBumped) {
+    console.log(
+      `[leave-balance] Bumped ${balancesBumped} employee LeaveBalance row(s) from 10 → 12 allocated`,
+    );
+  }
+}
+
 // Initial bootstrap: seed default leave types if none exist, and seed
 // balances for the current year (no force — won't overwrite existing allocations).
 export async function initLeaveBalanceSystem() {
@@ -152,6 +217,10 @@ export async function initLeaveBalanceSystem() {
     // Always run after seed — safe because it no-ops on fresh DBs where the
     // newly-seeded rows already have monthlyQuota set.
     await migrateLeaveTypeMonthlyQuotas();
+
+    // Bump 10/yr → 12/yr for PL + ML rows still on the old default,
+    // plus their per-user balances. Idempotent + override-preserving.
+    await migrateLeaveTypeYearlyTo12();
 
     const currentYear = moment.tz(TZ).year();
     const result = await resetBalancesForYear(currentYear, { force: false });
