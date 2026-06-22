@@ -6,6 +6,39 @@ import { paginationInstance } from "../utils/pagination";
 import { seedBalancesForUser } from "../services/leaveBalanceService";
 import { computeProbationOriginalEndDate } from "../utils/probation";
 
+// Distill any thrown error into a single user-facing string the React
+// form can render. Mongoose ValidationError carries nested per-field
+// messages — we collapse them to "Field: message; Field2: ..." so the
+// employee can see EXACTLY which field is failing instead of a generic
+// "something went wrong". Duplicate-key errors expose the conflicting
+// field name. Anything else falls through to its `.message`.
+function formatProfileError(err: unknown): string {
+  if (!err) return "Something went wrong";
+  const e = err as {
+    name?: string;
+    code?: number;
+    message?: string;
+    errors?: Record<string, { message?: string; path?: string }>;
+    keyValue?: Record<string, unknown>;
+  };
+  if (e.name === "ValidationError" && e.errors) {
+    const parts = Object.entries(e.errors).map(([field, info]) => {
+      const friendly = field
+        .replace(/([A-Z])/g, " $1")
+        .replace(/^./, (c) => c.toUpperCase())
+        .trim();
+      return `${friendly}: ${info?.message || "invalid"}`;
+    });
+    return parts.join("; ");
+  }
+  if (e.code === 11000 && e.keyValue) {
+    const field = Object.keys(e.keyValue)[0];
+    const value = e.keyValue[field];
+    return `${field} "${value}" is already in use`;
+  }
+  return e.message || "Something went wrong";
+}
+
 export const getUserProfiles = async (req: Request, res: Response) => {
   try {
     const { options, instance } = await paginationInstance(
@@ -123,7 +156,7 @@ export const createUserProfile = async (req: Request, res: Response) => {
 
     res.status(201).json({ data: savedUserProfile });
   } catch (error) {
-    res.status(500).json({ error: error });
+    res.status(400).json({ error: formatProfileError(error) });
   }
 };
 
@@ -161,7 +194,7 @@ export const updateUserProfileById = async (req: Request, res: Response) => {
 
     res.status(200).json({ data: updatedUserProfile });
   } catch (error) {
-    res.status(500).json({ error: error });
+    res.status(400).json({ error: formatProfileError(error) });
   }
 };
 

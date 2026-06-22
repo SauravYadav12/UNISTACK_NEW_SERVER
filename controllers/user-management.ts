@@ -81,6 +81,36 @@ export const updateUser = async (req: Request, res: Response) => {
           if (Object.keys(update).length > 0) {
             await UserProfileModel.updateOne(profileFilter, update);
           }
+        } else {
+          // No profile exists yet — common when a super-admin just
+          // signed up a new employee and toggles activation BEFORE
+          // anyone fills the profile form. Previously this branch was
+          // a silent skip, which meant DOJ never got stamped and the
+          // employee was invisible to the probation workflow.
+          // Now we MINT a minimal profile so the probation engine has
+          // an anchor + the user shows up in /probation immediately.
+          // HR can fill the rest of the profile fields later via the
+          // edit-profile flow without losing DOJ.
+          const doj = new Date();
+          try {
+            await UserProfileModel.create({
+              user: user._id,
+              dateOfJoining: doj,
+              probationStatus: "in_progress",
+              probationOriginalEndDate: computeProbationOriginalEndDate(doj),
+              probationExtensionDays: 0,
+            });
+            dojWasJustStamped = true;
+          } catch (createErr) {
+            // Don't fail the whole activation if the profile mint
+            // hits an unexpected error (e.g. validation, dup-key
+            // race). Log and continue — leave balances still get
+            // seeded below, and HR can create the profile manually.
+            console.error(
+              `[user-mgmt] Failed to auto-create profile for ${user._id}:`,
+              (createErr as Error).message,
+            );
+          }
         }
       } catch (e) {
         // Non-fatal — fall through to balance seeding even if the
