@@ -5,6 +5,7 @@ import { UserProfileModel } from "../models/userProfileModel";
 import { handleDateQuery } from "../utils/utils";
 import { seedBalancesForUser } from "../services/leaveBalanceService";
 import { computeProbationOriginalEndDate } from "../utils/probation";
+import { generateEmployeeId } from "./userProfileController";
 
 export const getAllUsers = async (req: Request, res: Response) => {
   try {
@@ -92,26 +93,14 @@ export const updateUser = async (req: Request, res: Response) => {
           // HR can fill the rest of the profile fields later via the
           // edit-profile flow without losing DOJ.
           //
-          // The schema requires `employeeId` (unique). Generate it the
-          // same way createUserProfile does (UNI-DD-MM-YYYY/NN) so the
-          // numbering stays consistent. Earlier version of this code
-          // omitted employeeId and silently failed Mongoose validation
-          // — the profile was never created, leaving the employee in
-          // a half-activated state HR couldn't fix without the
-          // server logs.
+          // Generate employeeId via the SHARED helper from
+          // userProfileController so both auto-create-on-activation AND
+          // the explicit POST /user-profiles use the same format
+          // (UNI-MMYY-NNN) and the same global sequence. No risk of
+          // the two paths producing different IDs.
           const doj = new Date();
           try {
-            const sequenceNumber =
-              (await UserProfileModel.countDocuments()) + 1;
-            const m = doj.getMonth() + 1;
-            const month = m < 10 ? `0${m}` : `${m}`;
-            const day =
-              doj.getDate() < 10 ? `0${doj.getDate()}` : `${doj.getDate()}`;
-            const counter =
-              sequenceNumber < 10
-                ? `0${sequenceNumber}`
-                : `${sequenceNumber}`;
-            const employeeId = `UNI-${day}-${month}-${doj.getFullYear()}/${counter}`;
+            const employeeId = await generateEmployeeId(doj);
             await UserProfileModel.create({
               user: user._id,
               employeeId,
@@ -127,9 +116,13 @@ export const updateUser = async (req: Request, res: Response) => {
           } catch (createErr) {
             // Don't fail the whole activation if the profile mint
             // hits an unexpected error (e.g. validation, dup-key
-            // race). Log loudly so HR can investigate, then continue
-            // — leave balances still get seeded below, and HR can
-            // create the profile manually.
+            // race with the client-side createProfile call). Log
+            // loudly so HR can investigate, then continue — leave
+            // balances still get seeded below, and the client-side
+            // POST /user-profiles call from ActiveUserSwitch will
+            // also try (and since createUserProfile is now idempotent,
+            // if a profile already exists it just returns it; if not
+            // it creates one using the same helper).
             console.error(
               `[user-mgmt] Failed to auto-create profile for ${user._id}:`,
               (createErr as Error).message,

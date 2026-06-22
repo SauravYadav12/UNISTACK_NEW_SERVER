@@ -39,6 +39,48 @@ function formatProfileError(err: unknown): string {
   return e.message || "Something went wrong";
 }
 
+/**
+ * Generates the next employee ID in the canonical format
+ *   `UNI-MMYY-NNN`
+ * e.g. `UNI-0626-054` for the 54th profile created in June 2026.
+ *
+ * The sequence is **global** (never resets per-month) so each employee
+ * has a unique number that persists across years. We derive it from
+ * the MAX of all existing trailing numbers — robust against deleted
+ * docs (countDocuments() would under-count). Handles both:
+ *   - New format:   `UNI-MMYY-NNN`  (after this change)
+ *   - Legacy format: `UNI-DD-MM-YYYY/NN`  (created by earlier code)
+ * So a mid-migration database with both formats still produces a
+ * sequentially-correct next ID.
+ *
+ * Exported so the activation hook in user-management.ts can use the
+ * same helper — single source of truth, no chance of two paths
+ * generating different formats.
+ */
+export async function generateEmployeeId(date = new Date()): Promise<string> {
+  const all = await UserProfileModel.find({
+    employeeId: { $regex: /^UNI-/ },
+  })
+    .select("employeeId")
+    .lean();
+  let maxSeq = 0;
+  for (const row of all) {
+    const eid = (row as { employeeId?: string }).employeeId || "";
+    // Match the trailing integer regardless of the separator before it:
+    //   `UNI-0626-054` → 054
+    //   `UNI-23-06-2026/01` → 01
+    const m = eid.match(/[\/\-](\d+)$/);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (Number.isFinite(n) && n > maxSeq) maxSeq = n;
+    }
+  }
+  const next = maxSeq + 1;
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const yearShort = String(date.getFullYear()).slice(-2);
+  return `UNI-${month}${yearShort}-${String(next).padStart(3, "0")}`;
+}
+
 export const getUserProfiles = async (req: Request, res: Response) => {
   try {
     const { options, instance } = await paginationInstance(
@@ -60,23 +102,40 @@ export const getUserProfiles = async (req: Request, res: Response) => {
 
 export const createUserProfile = async (req: Request, res: Response) => {
   try {
-    const sequenceNumber = await UserProfileModel.countDocuments()+1;
-    const date = new Date();
-    const m = date.getMonth() + 1;
-    const month = m < 10 ? `0${m}` : m;
-    const day = date.getDate() < 10 ? `0${date.getDate()}` : date.getDate();
-    const counter =
-      sequenceNumber < 10 ? `0${sequenceNumber}` : `${sequenceNumber}`;
-    const employeeId = `UNI-${day}-${month}-${date.getFullYear()}/${counter}`;
+    const incoming = (req.body || {}) as Record<string, unknown>;
+
+    // ─── Idempotency guard ──────────────────────────────────────────
+    // The activation flow on the client fires TWO requests back-to-back:
+    //   1. PATCH /users/:id  { active: true }  → server's updateUser
+    //      hook auto-creates a profile (since v? of this code).
+    //   2. POST  /user-profiles  { user, email, name }  → this endpoint.
+    // Both target the same `user` field, which is `unique: true` in
+    // the schema. Without this guard the second one races and either:
+    //   (a) hits a duplicate-key error and the client swallows it
+    //       silently, leaving a profile with the WRONG format /
+    //       missing DOJ, or
+    //   (b) wins the race but later code paths break.
+    // If a profile for this user already exists, just return it.
+    // Caller treats this as success; no race, no dup-key, no silent
+    // data loss.
+    if (incoming.user) {
+      const existing = await UserProfileModel.findOne({
+        user: incoming.user,
+      });
+      if (existing) {
+        res.status(200).json({ data: existing });
+        return;
+      }
+    }
+
+    // Generate canonical employee ID via the shared helper (UNI-MMYY-NNN).
+    // Both this endpoint AND the activation auto-create call use this
+    // function — same format, sequence drawn from a single source of truth.
+    const employeeId = await generateEmployeeId();
 
     // Auto-stamp dateOfJoining when the profile is created for an active
-    // user. This is the AUTHORITATIVE place to set DOJ for new joiners:
-    // the React activation flow calls `updateUser({active:true})` BEFORE
-    // `createProfile`, so the activation hook sees no profile and can't
-    // stamp DOJ. Setting it here closes that race and ensures probation
-    // rules apply correctly. Caller-supplied dateOfJoining (HR backdating
-    // an actual start) is respected.
-    const incoming = (req.body || {}) as Record<string, unknown>;
+    // user. Caller-supplied dateOfJoining (HR backdating an actual start)
+    // is respected.
     // Defensive cleanup: drop an empty-string `_id` so Mongoose doesn't
     // try to cast "" → ObjectId (which fails with CastError), and strip
     // whitespace / separators from phone numbers so the schema's strict
@@ -98,7 +157,7 @@ export const createUserProfile = async (req: Request, res: Response) => {
     const dateOfJoining =
       dojFromBody && !Number.isNaN(dojFromBody.getTime())
         ? dojFromBody
-        : date;
+        : new Date();
 
     // Probation workflow defaults — only set if not supplied in the
     // body (HR may seed a backfilled employee already-confirmed).
