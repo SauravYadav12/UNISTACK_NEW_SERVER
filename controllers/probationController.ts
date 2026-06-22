@@ -490,8 +490,15 @@ export const updateEmployeeJoiningDate = async (
       "probationStatus dateOfJoining",
     );
     if (!profile) {
+      // Defensive case: the user is active but the profile-create hook
+      // never fired (older accounts pre-dating the auto-create-on-
+      // activation logic, or accounts where the auto-create itself
+      // failed because of a transient validation/dup-key error).
+      // Phrase the error so super-admin doesn't waste time toggling
+      // activation — that won't help since the user IS already active.
       res.status(404).json({
-        error: "Profile not found. Activate the employee first.",
+        error:
+          "This employee has no profile yet. Toggle their activation OFF and back ON to auto-create the profile, or open their Profile drawer and click Submit to create it manually.",
       });
       return;
     }

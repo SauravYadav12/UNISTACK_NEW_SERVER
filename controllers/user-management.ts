@@ -91,21 +91,45 @@ export const updateUser = async (req: Request, res: Response) => {
           // an anchor + the user shows up in /probation immediately.
           // HR can fill the rest of the profile fields later via the
           // edit-profile flow without losing DOJ.
+          //
+          // The schema requires `employeeId` (unique). Generate it the
+          // same way createUserProfile does (UNI-DD-MM-YYYY/NN) so the
+          // numbering stays consistent. Earlier version of this code
+          // omitted employeeId and silently failed Mongoose validation
+          // — the profile was never created, leaving the employee in
+          // a half-activated state HR couldn't fix without the
+          // server logs.
           const doj = new Date();
           try {
+            const sequenceNumber =
+              (await UserProfileModel.countDocuments()) + 1;
+            const m = doj.getMonth() + 1;
+            const month = m < 10 ? `0${m}` : `${m}`;
+            const day =
+              doj.getDate() < 10 ? `0${doj.getDate()}` : `${doj.getDate()}`;
+            const counter =
+              sequenceNumber < 10
+                ? `0${sequenceNumber}`
+                : `${sequenceNumber}`;
+            const employeeId = `UNI-${day}-${month}-${doj.getFullYear()}/${counter}`;
             await UserProfileModel.create({
               user: user._id,
+              employeeId,
               dateOfJoining: doj,
               probationStatus: "in_progress",
               probationOriginalEndDate: computeProbationOriginalEndDate(doj),
               probationExtensionDays: 0,
             });
             dojWasJustStamped = true;
+            console.log(
+              `[user-mgmt] Auto-created profile on activation: user=${user._id} employeeId=${employeeId}`,
+            );
           } catch (createErr) {
             // Don't fail the whole activation if the profile mint
             // hits an unexpected error (e.g. validation, dup-key
-            // race). Log and continue — leave balances still get
-            // seeded below, and HR can create the profile manually.
+            // race). Log loudly so HR can investigate, then continue
+            // — leave balances still get seeded below, and HR can
+            // create the profile manually.
             console.error(
               `[user-mgmt] Failed to auto-create profile for ${user._id}:`,
               (createErr as Error).message,
