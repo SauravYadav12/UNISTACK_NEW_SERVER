@@ -48,6 +48,7 @@ import { jobBoardRoute } from "./routes/jobBoardRoutes";
 import { probationRoute } from "./routes/probationRoute";
 import { onboardingRoute } from "./routes/onboardingRoute";
 import { publicOnboardingRoute } from "./routes/publicOnboardingRoute";
+import { myDocumentsRoute } from "./routes/myDocumentsRoute";
 import { initInvoiceDueScheduler } from "./services/invoiceDueScheduler";
 import { initLeaveBalanceSystem } from "./services/leaveBalanceScheduler";
 import { initPerformanceWarningScheduler } from "./services/performanceWarningScheduler";
@@ -128,6 +129,9 @@ app.use("/probation", probationRoute);
 app.use("/onboarding", onboardingRoute);
 // Public, no-auth onboarding surface — token in URL is the credential.
 app.use("/p/onboarding", publicOnboardingRoute);
+// Employee-facing personal documents — JWT-gated, scoped per-user
+// inside each controller. Currently surfaces signed onboarding docs.
+app.use("/my-documents", myDocumentsRoute);
 
 // Surface a clear boot-time warning if the Job Boards feature is wired
 // up but the upstream key is missing. Without this, the first search
