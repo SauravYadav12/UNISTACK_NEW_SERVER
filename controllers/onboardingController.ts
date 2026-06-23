@@ -43,6 +43,7 @@ import {
 } from "../models/onboardingDocTemplateModel";
 import { PublicLinkTokenModel } from "../models/publicLinkTokenModel";
 import { UserModel, UserDoc } from "../models/userModel";
+import { UserProfileModel } from "../models/userProfileModel";
 import { UserRole } from "../enums/UserEnum";
 import { sequenceId } from "../utils/utils";
 import { sendMail } from "../utils/mailTransporter";
@@ -192,6 +193,7 @@ function summary(doc: OnboardingCandidateDoc) {
     hasFormData: Boolean(doc.formData?.submittedAt),
     hasOffer: Boolean(doc.offer?.snapshot),
     hasSignedOffer: Boolean(doc.offer?.signedAt),
+    isBackdated: Boolean(doc.isBackdated),
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };
@@ -201,11 +203,23 @@ function summary(doc: OnboardingCandidateDoc) {
 // LIST + DETAIL
 
 export const listCandidates = async (
-  _req: Request,
+  req: Request,
   res: Response,
 ): Promise<void> => {
   try {
-    const docs = await OnboardingCandidateModel.find({})
+    // Optional `?backdated=true|false` filter so the Backdated
+    // Onboarding admin tab can fetch only synthesised legacy records
+    // (and the live Onboarding tab can exclude them later if it ever
+    // wants to). Default — no flag → return everything (preserves the
+    // existing callers).
+    const query: Record<string, unknown> = {};
+    const backdatedQ = String(req.query.backdated ?? "").toLowerCase();
+    if (backdatedQ === "true") {
+      query.isBackdated = true;
+    } else if (backdatedQ === "false") {
+      query.isBackdated = { $ne: true };
+    }
+    const docs = await OnboardingCandidateModel.find(query)
       .sort({ updatedAt: -1 })
       .lean();
     res
@@ -1016,6 +1030,233 @@ export const sendOffer = async (
     res.status(200).json({ data: summary(candidate) });
   } catch (error) {
     console.error("[onboarding] sendOffer failed:", (error as Error).message);
+    res.status(500).json({ error: (error as Error).message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// CREATE BACKDATED CANDIDATE (super-admin only)
+//
+// Synthesises a fully-signed OnboardingCandidate from scratch so the
+// paper onboarding paperwork of legacy / pre-portal employees can be
+// surfaced in their My Documents → Onboarding tab. The endpoint is the
+// one-shot equivalent of the entire public flow:
+//
+//   create → form-submitted → bg-check-passed → offer-sent → signed →
+//   sign 4 additional docs → onboarded.
+//
+// Inputs let the super-admin pin the offer + additional-docs signed
+// dates (so the rendered documents read with the real historical
+// dates) and supply a typed-cursive signature that's painted on all
+// five documents. `officialEmail` is set to the picked user's
+// `User.email` so the My Documents lookup matches deterministically.
+
+interface BackdatedBody {
+  userId?: string;
+  position?: string;
+  annualSalary?: number;
+  probationMonths?: number;
+  startDate?: string;
+  offerSignedDate?: string;
+  additionalDocsSignedDate?: string;
+  signedFullName?: string;
+  signatureTypedName?: string;
+  skipDocs?: OnboardingDocKind[];
+}
+
+export const createBackdatedCandidate = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const admin = req.user as UserDoc;
+    const body = (req.body || {}) as BackdatedBody;
+
+    const userId = String(body.userId || "");
+    if (!Types.ObjectId.isValid(userId)) {
+      res.status(400).json({ error: "Pick a valid employee." });
+      return;
+    }
+
+    const position = String(body.position || "").trim();
+    const annualSalary = Number(body.annualSalary);
+    const probationMonths = Number(body.probationMonths ?? 3) || 3;
+    const startDate = body.startDate
+      ? new Date(String(body.startDate))
+      : null;
+    const offerSignedDate = body.offerSignedDate
+      ? new Date(String(body.offerSignedDate))
+      : null;
+    const additionalDocsSignedDate = body.additionalDocsSignedDate
+      ? new Date(String(body.additionalDocsSignedDate))
+      : null;
+    const signedFullName = String(body.signedFullName || "").trim();
+    const signatureTypedName = String(body.signatureTypedName || "").trim();
+    const skipDocs = Array.isArray(body.skipDocs) ? body.skipDocs : [];
+
+    if (
+      !position ||
+      !Number.isFinite(annualSalary) ||
+      annualSalary <= 0 ||
+      !startDate ||
+      Number.isNaN(startDate.getTime()) ||
+      !offerSignedDate ||
+      Number.isNaN(offerSignedDate.getTime()) ||
+      !additionalDocsSignedDate ||
+      Number.isNaN(additionalDocsSignedDate.getTime()) ||
+      !signedFullName ||
+      !signatureTypedName
+    ) {
+      res.status(400).json({
+        error:
+          "position, annualSalary > 0, startDate, offerSignedDate, additionalDocsSignedDate, signedFullName, and signatureTypedName are all required.",
+      });
+      return;
+    }
+
+    // Resolve the employee + their profile. The candidate row gets
+    // linked to the user via officialEmail = user.email so the My
+    // Documents primary-match path picks it up immediately.
+    const user = await UserModel.findById(userId);
+    if (!user) {
+      res.status(404).json({ error: "Employee not found." });
+      return;
+    }
+    const profileFilter = { user: user._id } as AnyFilter;
+    const profile = await UserProfileModel.findOne(profileFilter).lean();
+    const userEmail = String(user.email || "").toLowerCase();
+    if (!userEmail) {
+      res.status(400).json({
+        error: "This employee has no email on their User record — cannot link backdated docs.",
+      });
+      return;
+    }
+
+    // Duplicate guard — don't double-create. The most-recent-wins sort
+    // in the My Documents lookup means a second backdated record would
+    // shadow whatever existed first; reject so HR notices and either
+    // deletes the old one or skips. `rejected` rows are excluded since
+    // those are tombstones, not active onboarding state.
+    const existing = await OnboardingCandidateModel.findOne({
+      $or: [
+        { email: userEmail },
+        { officialEmail: userEmail },
+      ],
+      stage: { $ne: "rejected" },
+    })
+      .select("_id candId stage isBackdated")
+      .lean();
+    if (existing) {
+      res.status(409).json({
+        error: `An onboarding record already exists for this employee (${existing.candId}, stage: ${existing.stage}). Delete it first if you want to regenerate.`,
+      });
+      return;
+    }
+
+    // Snapshot the currently-active offer-letter template + the four
+    // additional doc templates — same helpers `sendOffer` uses. The
+    // backdated record then carries the same wording HR has live today.
+    const offerTemplate = await getActiveTemplate();
+    const offerTemplateSnap = snapshotTemplate(offerTemplate);
+    const allDocSnaps = await snapshotAllAdditionalDocs();
+
+    // Filter out skipped kinds — the legacy employee may not have all
+    // four paper docs. additionalSignedDocuments + additionalDocSnapshots
+    // are kept in lockstep so the admin drawer + employee view only
+    // show docs that actually have both a template + a signature.
+    const skipSet = new Set<OnboardingDocKind>(
+      skipDocs.filter((k): k is OnboardingDocKind =>
+        (ONBOARDING_DOC_KINDS as readonly string[]).includes(k),
+      ),
+    );
+    const additionalDocSnapshots = allDocSnaps.filter(
+      (s) => !skipSet.has(s.kind),
+    );
+    const additionalSignedDocuments = additionalDocSnapshots.map((snap) => ({
+      kind: snap.kind,
+      signedAt: additionalDocsSignedDate,
+      signatureMode: "typed" as const,
+      signatureTypedName,
+      signedFullName,
+      signatureDate: additionalDocsSignedDate,
+    }));
+
+    const fullName =
+      `${user.firstName || ""} ${user.lastName || ""}`.trim() || signedFullName;
+    const snapshot: OnboardingOfferSnapshot = {
+      name: fullName,
+      position,
+      startDate,
+      annualSalary,
+      probationMonths,
+    };
+
+    const candId = await sequenceId(OnboardingCandidateModel, "candId", "CAND");
+
+    // Phone-from-profile is best-effort — UserProfile.phoneNumber may
+    // be empty for very old records. Cast through `unknown` to avoid
+    // dragging the profile's typed shape into this file.
+    const profilePhone =
+      (profile as { phoneNumber?: string } | null)?.phoneNumber || undefined;
+
+    const candidate = await OnboardingCandidateModel.create({
+      candId,
+      firstName: user.firstName || signedFullName.split(" ")[0] || "Employee",
+      lastName:
+        user.lastName ||
+        signedFullName.split(" ").slice(1).join(" ") ||
+        "",
+      email: userEmail,
+      officialEmail: userEmail,
+      phone: profilePhone,
+      position,
+      proposedStartDate: startDate,
+      proposedAnnualSalary: annualSalary,
+      probationMonths,
+      stage: "onboarded",
+      invitedBy: admin._id,
+      isBackdated: true,
+      offer: {
+        // Offer was "sent" at the same moment it was "signed" for a
+        // backdated record — there's no real two-step. signedAt is
+        // what surfaces on the document; sentAt is kept equal so the
+        // audit log makes sense.
+        sentAt: offerSignedDate,
+        signedAt: offerSignedDate,
+        snapshot,
+        templateAtSendTime: offerTemplateSnap,
+        signatureMode: "typed",
+        signatureTypedName,
+        signedFullName,
+        signatureDate: offerSignedDate,
+        // Reuse the candidate's email as the signed-by email so the
+        // verification stamp on the offer letter renders something
+        // sensible. No IP / user-agent / geo — this isn't a live sign
+        // and rendering those would be misleading.
+        signedByEmail: userEmail,
+      },
+      additionalDocSnapshots,
+      additionalSignedDocuments,
+    });
+
+    audit(
+      candidate,
+      "backdated-generated",
+      admin,
+      `Backdated onboarding · offer signed ${offerSignedDate
+        .toISOString()
+        .slice(0, 10)} · docs signed ${additionalDocsSignedDate
+        .toISOString()
+        .slice(0, 10)} · ${additionalSignedDocuments.length}/4 docs`,
+    );
+    await candidate.save();
+
+    res.status(201).json({ data: summary(candidate) });
+  } catch (error) {
+    console.error(
+      "[onboarding] createBackdatedCandidate failed:",
+      (error as Error).message,
+    );
     res.status(500).json({ error: (error as Error).message });
   }
 };

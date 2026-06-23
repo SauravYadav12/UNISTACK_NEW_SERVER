@@ -17,6 +17,7 @@ import {
   listCandidates,
   getCandidate,
   createCandidate,
+  createBackdatedCandidate,
   updateCandidateDetails,
   requestInfo,
   markInfoReceived,
@@ -51,6 +52,17 @@ const onboardingRoute = express.Router();
 onboardingRoute.get("/candidates", auth, adminOrSuper, listCandidates);
 onboardingRoute.get("/candidates/:id", auth, adminOrSuper, getCandidate);
 onboardingRoute.post("/candidates", auth, adminOrSuper, createCandidate);
+// Backdated onboarding for legacy / pre-portal employees — super-admin
+// only. Synthesises a fully-signed OnboardingCandidate (offer + 4
+// additional docs) with the dates the super-admin supplies, and links
+// it to an existing User via officialEmail so the docs surface in My
+// Documents → Onboarding for that employee on their next visit.
+onboardingRoute.post(
+  "/candidates/backdated",
+  auth,
+  superOnly,
+  createBackdatedCandidate,
+);
 // Edit the basic AddCandidate fields (name, email, phone, position,
 // start date, salary, probation). Same role gate as the rest of the
 // onboarding admin surface — admin, super-admin, HR.

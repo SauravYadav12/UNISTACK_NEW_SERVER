@@ -248,6 +248,11 @@ export interface OnboardingCandidateDoc extends Document {
   // up across the multi-step signing flow. When this array has all
   // four kinds present, stage flips to `onboarded`.
   additionalSignedDocuments?: OnboardingSignedAdditionalDoc[];
+  // True for records synthesised by the super-admin Backdated
+  // Onboarding flow — paper-to-digital transcriptions for legacy
+  // employees who pre-date the public portal. Used by the admin
+  // panel to filter "Backdated" vs "live" candidates.
+  isBackdated?: boolean;
   invitedBy: Types.ObjectId;
   auditLog: OnboardingAuditEntry[];
   createdAt: Date;
@@ -437,6 +442,7 @@ const onboardingCandidateSchema = new Schema<OnboardingCandidateDoc>(
       type: [signedAdditionalDocSchema],
       default: undefined,
     },
+    isBackdated: { type: Boolean },
     invitedBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
     auditLog: { type: [auditEntrySchema], default: [] },
   },
