@@ -223,6 +223,12 @@ export interface OnboardingCandidateDoc extends Document {
   firstName: string;
   lastName: string;
   email: string;
+  // HR-recorded corporate email (the one the candidate will log in
+  // with after offer acceptance). Used as the primary match key for
+  // surfacing signed documents under My Documents → Onboarding. Empty
+  // when HR hasn't provisioned the mailbox yet; lookup then falls
+  // back to the legacy 3-way match path.
+  officialEmail?: string;
   phone?: string;
   position: string;
   proposedStartDate: Date;
@@ -406,6 +412,7 @@ const onboardingCandidateSchema = new Schema<OnboardingCandidateDoc>(
     firstName: { type: String, required: true, trim: true },
     lastName: { type: String, required: true, trim: true },
     email: { type: String, required: true, trim: true, lowercase: true },
+    officialEmail: { type: String, trim: true, lowercase: true },
     phone: { type: String, trim: true },
     position: { type: String, required: true, trim: true },
     proposedStartDate: { type: Date, required: true },
@@ -438,6 +445,10 @@ const onboardingCandidateSchema = new Schema<OnboardingCandidateDoc>(
 
 onboardingCandidateSchema.index({ stage: 1, createdAt: -1 });
 onboardingCandidateSchema.index({ email: 1 });
+// Sparse so candidates without an officialEmail (the common case at
+// invite time) don't bloat the index. Powers the primary My Documents
+// → Onboarding lookup against the user's corporate login email.
+onboardingCandidateSchema.index({ officialEmail: 1 }, { sparse: true });
 
 export const OnboardingCandidateModel = mongoose.model<OnboardingCandidateDoc>(
   "OnboardingCandidate",

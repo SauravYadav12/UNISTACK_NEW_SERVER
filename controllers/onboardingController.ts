@@ -178,6 +178,7 @@ function summary(doc: OnboardingCandidateDoc) {
     firstName: doc.firstName,
     lastName: doc.lastName,
     email: doc.email,
+    officialEmail: doc.officialEmail,
     phone: doc.phone,
     position: doc.position,
     proposedStartDate: doc.proposedStartDate,
@@ -250,6 +251,7 @@ export const createCandidate = async (
       firstName,
       lastName,
       email,
+      officialEmail,
       phone,
       position,
       proposedStartDate,
@@ -273,6 +275,18 @@ export const createCandidate = async (
       res.status(400).json({ error: "Enter a valid email address." });
       return;
     }
+    // officialEmail is optional. Empty string ⇒ "not provided" (kept
+    // undefined on the document). When supplied, validate the same
+    // way as the primary email and lowercase on save below.
+    const officialEmailStr =
+      typeof officialEmail === "string" ? officialEmail.trim() : "";
+    if (
+      officialEmailStr &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(officialEmailStr)
+    ) {
+      res.status(400).json({ error: "Enter a valid official email address." });
+      return;
+    }
     if (phone) {
       const phoneDigits = String(phone).replace(/\D/g, "");
       if (!/^\d{10}$/.test(phoneDigits)) {
@@ -287,6 +301,9 @@ export const createCandidate = async (
       firstName,
       lastName,
       email: emailStr.toLowerCase(),
+      officialEmail: officialEmailStr
+        ? officialEmailStr.toLowerCase()
+        : undefined,
       phone: phone ? String(phone).replace(/\D/g, "") : undefined,
       position,
       proposedStartDate: new Date(proposedStartDate),
@@ -388,6 +405,7 @@ export const updateCandidateDetails = async (
       firstName,
       lastName,
       email,
+      officialEmail,
       phone,
       position,
       proposedStartDate,
@@ -418,6 +436,17 @@ export const updateCandidateDetails = async (
       res.status(400).json({ error: "Enter a valid email address." });
       return;
     }
+    // officialEmail is optional. Empty string clears the previously
+    // saved value (HR may want to remove a wrong corporate email).
+    const officialEmailStr =
+      typeof officialEmail === "string" ? officialEmail.trim() : "";
+    if (
+      officialEmailStr &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(officialEmailStr)
+    ) {
+      res.status(400).json({ error: "Enter a valid official email address." });
+      return;
+    }
     if (phone) {
       const phoneDigits = String(phone).replace(/\D/g, "");
       if (!/^\d{10}$/.test(phoneDigits)) {
@@ -437,6 +466,11 @@ export const updateCandidateDetails = async (
     trackChange("firstName", candidate.firstName, firstName);
     trackChange("lastName", candidate.lastName, lastName);
     trackChange("email", candidate.email, emailStr.toLowerCase());
+    trackChange(
+      "officialEmail",
+      candidate.officialEmail || "",
+      officialEmailStr ? officialEmailStr.toLowerCase() : "",
+    );
     trackChange("phone", candidate.phone, phone || "");
     trackChange("position", candidate.position, position);
     trackChange(
@@ -458,6 +492,11 @@ export const updateCandidateDetails = async (
     candidate.firstName = String(firstName).trim();
     candidate.lastName = String(lastName).trim();
     candidate.email = emailStr.toLowerCase();
+    // Persist the lowercased value when provided, or unset entirely
+    // when HR sent an empty string (treat "" as "clear it").
+    candidate.officialEmail = officialEmailStr
+      ? officialEmailStr.toLowerCase()
+      : undefined;
     candidate.phone = phone
       ? String(phone).replace(/\D/g, "")
       : undefined;
