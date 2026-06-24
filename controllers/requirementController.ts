@@ -521,9 +521,16 @@ export const requirementsCounts = async (req: Request, res: Response) => {
       typeof parentReqID === "string" && (parentReqID as string).length > 0;
     const isExplicitReqIDLookup =
       typeof filterReqID === "string" && (filterReqID as string).length > 0;
+    // Mirror `getAllRrequirements`: `starColor` lives only on parents,
+    // so it must NOT push us into the "include children + drop parents-
+    // with-children" branch. Otherwise the date-pill count under a
+    // star-colour filter goes to 00 even though parent rows with that
+    // colour ARE visible in the grid — exactly what was happening.
+    const PARENT_ONLY_FILTERS = new Set(["starColor"]);
     const nonPaginationFilterKeys = Object.keys(filters).filter((k) => {
       if (["page", "limit", "sort", "timezone", "archive"].includes(k))
         return false;
+      if (PARENT_ONLY_FILTERS.has(k)) return false;
       const v = (filters as Record<string, unknown>)[k];
       return v !== undefined && v !== null && v !== "";
     });
