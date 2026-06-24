@@ -49,6 +49,7 @@ import { probationRoute } from "./routes/probationRoute";
 import { onboardingRoute } from "./routes/onboardingRoute";
 import { publicOnboardingRoute } from "./routes/publicOnboardingRoute";
 import { myDocumentsRoute } from "./routes/myDocumentsRoute";
+import { form16Route } from "./routes/form16Route";
 import { initInvoiceDueScheduler } from "./services/invoiceDueScheduler";
 import { initLeaveBalanceSystem } from "./services/leaveBalanceScheduler";
 import { initPerformanceWarningScheduler } from "./services/performanceWarningScheduler";
@@ -132,6 +133,8 @@ app.use("/p/onboarding", publicOnboardingRoute);
 // Employee-facing personal documents — JWT-gated, scoped per-user
 // inside each controller. Currently surfaces signed onboarding docs.
 app.use("/my-documents", myDocumentsRoute);
+// Form-16 admin module (super-admin-only inside the route file).
+app.use("/form16", form16Route);
 
 // Surface a clear boot-time warning if the Job Boards feature is wired
 // up but the upstream key is missing. Without this, the first search

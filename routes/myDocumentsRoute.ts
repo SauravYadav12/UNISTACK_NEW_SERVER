@@ -11,11 +11,15 @@
 import express from "express";
 import passport from "passport";
 import { getMyOnboardingDocs } from "../controllers/myDocumentsController";
+import { getMyForm16s } from "../controllers/form16Controller";
 
 const auth = passport.authenticate("jwt", { session: false });
 
 const myDocumentsRoute = express.Router();
 
 myDocumentsRoute.get("/onboarding", auth, getMyOnboardingDocs);
+// Annual Form-16 list — controller scopes to req.user, so no
+// extra role gate needed beyond JWT.
+myDocumentsRoute.get("/form16", auth, getMyForm16s);
 
 export { myDocumentsRoute };
