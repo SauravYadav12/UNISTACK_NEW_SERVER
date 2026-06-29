@@ -3,6 +3,7 @@ import { Types } from "mongoose";
 import {
   LeaveTypeModel,
   suggestLeaveCode,
+  ensureUnpaidBucket,
 } from "../models/leaveTypeModel";
 import { LeaveBalanceModel } from "../models/leaveBalanceModel";
 import { LeaveModel } from "../models/leaveModel";
@@ -10,6 +11,11 @@ import { UserModel } from "../models/userModel";
 
 export const listLeaveTypes = async (req: Request, res: Response) => {
   try {
+    // Probation users may only apply for unpaid leave, so the picker
+    // is empty unless the UL bucket row exists. The full seeder skips
+    // when the collection already has rows — `ensureUnpaidBucket`
+    // closes that gap idempotently on every list call.
+    await ensureUnpaidBucket();
     const includeInactive = req.query.includeInactive === "true";
     const filter = includeInactive ? {} : { active: true };
     const data = await LeaveTypeModel.find(filter).sort({ name: 1 }).lean();
@@ -143,12 +149,16 @@ export const deleteLeaveType = async (req: Request, res: Response) => {
 };
 
 export const getUnpaidBucket = async (_req: Request, res: Response) => {
+  // Auto-create on the read path so external integrations never see
+  // a null UL row in a system that pre-dates the seeder.
+  await ensureUnpaidBucket();
   const doc = await LeaveTypeModel.findOne({ isUnpaidBucket: true }).lean();
   res.status(200).json({ data: doc });
 };
 
 // Helper used elsewhere (not exposed as route).
 export async function getUnpaidBucketType() {
+  await ensureUnpaidBucket();
   return LeaveTypeModel.findOne({ isUnpaidBucket: true });
 }
 

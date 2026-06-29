@@ -88,3 +88,34 @@ export async function seedDefaultLeaveTypes(): Promise<number> {
   const inserted = await LeaveTypeModel.insertMany(DEFAULT_LEAVE_TYPES);
   return inserted.length;
 }
+
+/**
+ * Guarantee a single Unpaid Leave (UL) row exists. The full seeder
+ * only runs when the collection is empty, so a system that started
+ * with custom leave types (e.g. HR created CL/SL manually before the
+ * UL row was added to the seeder) ends up without a UL bucket — and
+ * probation users see an empty leave-type picker as a result.
+ *
+ * This helper is idempotent: it does one indexed query and returns
+ * early when UL already exists. Safe to call on every list request.
+ */
+export async function ensureUnpaidBucket(): Promise<LeaveTypeDoc | null> {
+  // `isUnpaidBucket` has a partial unique index, so this is cheap.
+  let doc = await LeaveTypeModel.findOne({ isUnpaidBucket: true });
+  if (doc) return doc;
+  // Pull the canonical UL seed entry from DEFAULT_LEAVE_TYPES so the
+  // name/code/colour stay consistent with what fresh installs get.
+  const seed = DEFAULT_LEAVE_TYPES.find((t) => t.isUnpaidBucket);
+  if (!seed) return null;
+  try {
+    doc = await LeaveTypeModel.create({ ...seed, active: true });
+    return doc;
+  } catch (err) {
+    // A concurrent request may have raced us to insert UL — retry the
+    // findOne so callers get a doc back either way.
+    const race = await LeaveTypeModel.findOne({ isUnpaidBucket: true });
+    if (race) return race;
+    console.error("[leaveType] ensureUnpaidBucket failed:", (err as Error).message);
+    return null;
+  }
+}
