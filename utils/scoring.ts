@@ -372,14 +372,11 @@ export function scoreMarketing(
       points: round2(m.submissions * w("SUBMISSION_WEIGHT")),
       kind: "positive",
     },
-    {
-      key: "interviewsConfirmed",
-      label: "Client interviews confirmed",
-      count: m.interviewsConfirmed,
-      weight: w("INTERVIEW_CONFIRM_WEIGHT"),
-      points: round2(m.interviewsConfirmed * w("INTERVIEW_CONFIRM_WEIGHT")),
-      kind: "positive",
-    },
+    // "Client interviews confirmed" no longer earns marketing direct
+    // points — the +X-per-confirm line was retired so a confirm only
+    // pays off when the interview actually Completes. The metric is
+    // still tracked (feeds conversionPct + the stale-confirm penalty),
+    // it just doesn't render as a positive breakdown line anymore.
     {
       key: "interviewsCompleted",
       label: "Client interviews completed",

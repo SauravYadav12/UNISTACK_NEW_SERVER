@@ -71,19 +71,16 @@ export const PerformanceWeightsModel = mongoose.model<PerformanceWeightsDoc>(
 
 export const DEFAULT_MARKETING_WEIGHTS: Record<string, number> = {
   SUBMISSION_WEIGHT: 2,
-  // Confirmed client interview — partial credit. Many confirms never reach
-  // completion (reschedules, client pulls the plug) — that's tracked
-  // separately via the stale-confirm penalty.
-  INTERVIEW_CONFIRM_WEIGHT: 3,
-  // Completed client interview — the real win. Worth more than confirmed.
+  // Completed client interview — the real win. Confirms no longer carry
+  // standalone credit; the marketer is paid only when the interview
+  // actually happens.
   INTERVIEW_COMPLETED_WEIGHT: 10,
   CONVERSION_BONUS: 0.5,
   STALE_SUBMISSION_PENALTY: 1,
   UNWORKED_REQ_PENALTY: 1,
-  // Nudges an "Interview Confirm" that's sitting past its scheduled date;
-  // net reward = INTERVIEW_CONFIRM_WEIGHT − STALE_CONFIRM_PENALTY (= 1 by
-  // default) so a wasted confirm is still slightly positive, not harshly
-  // punitive.
+  // Penalty for a confirmed-then-rotted client interview (no-show,
+  // reschedule, dropped). Now pure penalty — no offsetting confirm
+  // reward — since the +X-per-confirm line was retired.
   STALE_CONFIRM_PENALTY: 2,
   // Day thresholds — also editable so admins can tune "what counts as stale".
   STALE_SUBMISSION_DAYS: 14,
@@ -116,6 +113,18 @@ export async function getWeights(role: PerformanceRole): Promise<PerformanceWeig
           : DEFAULT_SUPPORT_WEIGHTS,
       audit: [],
     });
+  }
+  // Self-heal: retire the legacy INTERVIEW_CONFIRM_WEIGHT key on existing
+  // marketing docs. The scoring util no longer reads it, but the key
+  // would otherwise linger in admin weight editors as a dead row.
+  if (
+    role === "marketing" &&
+    doc.weights &&
+    Object.prototype.hasOwnProperty.call(doc.weights, "INTERVIEW_CONFIRM_WEIGHT")
+  ) {
+    delete (doc.weights as Record<string, number>).INTERVIEW_CONFIRM_WEIGHT;
+    doc.markModified("weights");
+    await doc.save();
   }
   return doc;
 }
