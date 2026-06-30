@@ -32,7 +32,7 @@ export const BrandHeader = ({ tag, tagBg, tagColor }: Props) => (
                   <td>
                     <div>
                       <p style={emailStyles.brandRow}>UNICODEZ</p>
-                      <p style={emailStyles.brandSub}>SOFTCORP PRIVATE LIMITED</p>
+                      <p style={emailStyles.brandSub}>INC</p>
                     </div>
                   </td>
                 </tr>

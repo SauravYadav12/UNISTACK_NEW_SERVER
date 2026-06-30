@@ -5,6 +5,7 @@ import {
   ITimesheet,
   ITimesheetEntry,
   ITimesheetScreenshot,
+  ITimesheetScreenshotSlot,
 } from "../interface/modelInterfaces";
 
 export interface TimesheetDoc
@@ -36,10 +37,20 @@ const entrySchema = new mongoose.Schema<ITimesheetEntry>(
   { _id: false }
 );
 
+const screenshotSlotSchema = new mongoose.Schema<ITimesheetScreenshotSlot>(
+  {
+    label: { type: String, required: true, default: "" },
+  },
+  { _id: true }
+);
+
 const screenshotSchema = new mongoose.Schema<ITimesheetScreenshot>(
   {
-    weekStart: { type: String, required: true },
-    weekEnd: { type: String, required: true },
+    // weekStart/weekEnd are optional now that slots are free-text — kept on
+    // the schema for back-compat with rows persisted under the old model.
+    slotId: { type: String },
+    weekStart: { type: String },
+    weekEnd: { type: String },
     weekLabel: { type: String },
     url: { type: String, required: true },
     fileName: { type: String, required: true },
@@ -85,6 +96,7 @@ const timesheetSchema = new mongoose.Schema<TimesheetDoc>(
     completedAt: { type: Date },
     completedBy: { type: String },
     screenshots: { type: [screenshotSchema], default: [] },
+    screenshotSlots: { type: [screenshotSlotSchema], default: [] },
     filledBy: { type: String },
     notes: { type: String },
   },

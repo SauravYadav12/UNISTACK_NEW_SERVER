@@ -486,11 +486,25 @@ export interface ITimesheetEntry {
   hours: number;
 }
 
+export interface ITimesheetScreenshotSlot {
+  _id?: string;
+  /** Free-text label the admin can rename — defaults to the auto-derived
+   *  "Week of …" label but accepts any text (e.g. "June 2026 timesheet"
+   *  for clients that accept monthly proofs). */
+  label: string;
+}
+
 export interface ITimesheetScreenshot {
   _id?: string;
-  /** ISO start/end of the week the screenshot covers, keeps uploads organised. */
-  weekStart: string;  // YYYY-MM-DD
-  weekEnd: string;    // YYYY-MM-DD
+  /** Binds the screenshot to a slot in `Timesheet.screenshotSlots`.
+   *  Optional only for legacy rows persisted before the custom-slot
+   *  model — those still carry weekStart/weekEnd/weekLabel directly. */
+  slotId?: string;
+  /** ISO start/end of the week the screenshot covers, keeps uploads organised.
+   *  Optional now that slots can be free-text — kept on the schema for
+   *  back-compat with existing rows. */
+  weekStart?: string;  // YYYY-MM-DD
+  weekEnd?: string;    // YYYY-MM-DD
   /** Human label admins can eyeball: e.g. "Week of Apr 1 – Apr 7". */
   weekLabel?: string;
   url: string;
@@ -518,6 +532,11 @@ export interface ITimesheet {
   completedBy?: string;
   /** Approved-timesheet screenshots vendors attach to the invoice email. */
   screenshots?: ITimesheetScreenshot[];
+  /** User-defined upload-row slots. Empty when the timesheet has never been
+   *  touched; once anything is added/edited/uploaded the slot list becomes
+   *  canonical. Default rows are computed by the client from `periodMonth`
+   *  until the first persistence. */
+  screenshotSlots?: ITimesheetScreenshotSlot[];
   filledBy?: string;
   notes?: string;
   createdAt: string;

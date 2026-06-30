@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { Types } from "mongoose";
+import mongoose, { Types } from "mongoose";
 import moment from "moment";
 import { TimesheetModel } from "../models/timesheetModel";
 import { TimesheetApprovalModel } from "../models/timesheetApprovalModel";
@@ -324,8 +324,9 @@ export const markTimesheetComplete = async (req: Request, res: Response) => {
 };
 
 /**
- * Append a week-screenshot to the monthly timesheet. Body:
- *   { weekStart, weekEnd, weekLabel?, url, fileName, sizeBytes? }
+ * Append a screenshot to the monthly timesheet. Body either:
+ *   { slotId, url, fileName, sizeBytes? }     — modern, slot-based path
+ *   { weekStart, weekEnd, weekLabel?, url, fileName, sizeBytes? } — legacy
  * Called after the admin uploads an image via /storage/upload/timesheet-screenshot.
  */
 export const addTimesheetScreenshot = async (req: Request, res: Response) => {
@@ -335,22 +336,53 @@ export const addTimesheetScreenshot = async (req: Request, res: Response) => {
       res.status(404).json({ status: "failed", message: "Timesheet not found" });
       return;
     }
-    const { weekStart, weekEnd, weekLabel, url, fileName, sizeBytes } =
-      req.body as {
-        weekStart?: string;
-        weekEnd?: string;
-        weekLabel?: string;
-        url?: string;
-        fileName?: string;
-        sizeBytes?: number;
-      };
-    if (!weekStart || !weekEnd || !url || !fileName) {
+    const {
+      slotId,
+      weekStart,
+      weekEnd,
+      weekLabel,
+      url,
+      fileName,
+      sizeBytes,
+    } = req.body as {
+      slotId?: string;
+      weekStart?: string;
+      weekEnd?: string;
+      weekLabel?: string;
+      url?: string;
+      fileName?: string;
+      sizeBytes?: number;
+    };
+    if (!url || !fileName) {
       res.status(400).json({
         status: "failed",
-        message: "weekStart, weekEnd, url and fileName are required",
+        message: "url and fileName are required",
       });
       return;
     }
+    let resolvedLabel = weekLabel;
+    if (slotId) {
+      const slot = (doc.screenshotSlots || []).find(
+        (s) => String((s as unknown as { _id: unknown })._id) === slotId,
+      );
+      if (!slot) {
+        res
+          .status(404)
+          .json({ status: "failed", message: "Slot not found on this timesheet" });
+        return;
+      }
+      resolvedLabel = slot.label || weekLabel;
+    } else if (!weekStart || !weekEnd) {
+      // Legacy path still requires the date pair so existing API consumers
+      // keep working.
+      res.status(400).json({
+        status: "failed",
+        message:
+          "slotId is required (or supply weekStart + weekEnd for legacy callers)",
+      });
+      return;
+    }
+
     const user = req.user as
       | { firstName?: string; lastName?: string; email?: string }
       | undefined;
@@ -363,9 +395,10 @@ export const addTimesheetScreenshot = async (req: Request, res: Response) => {
     doc.screenshots = [
       ...(doc.screenshots || []),
       {
+        slotId,
         weekStart,
         weekEnd,
-        weekLabel,
+        weekLabel: resolvedLabel,
         url,
         fileName,
         sizeBytes,
@@ -373,6 +406,76 @@ export const addTimesheetScreenshot = async (req: Request, res: Response) => {
         uploadedAt: new Date().toISOString(),
       } as unknown as NonNullable<typeof doc.screenshots>[number],
     ];
+    await doc.save();
+    res.status(200).json({ status: "success", data: doc });
+  } catch (error) {
+    res.status(400).json({ status: "failed", error: getErrorMessage(error) });
+  }
+};
+
+/**
+ * Replace the timesheet's screenshot-slot list. Body:
+ *   { slots: Array<{ _id?: string; label: string }> }
+ * Slots without _id get a fresh ObjectId. Any screenshot whose slotId is no
+ * longer present in the new list is dropped — the UI can't render orphans.
+ */
+export const setTimesheetScreenshotSlots = async (
+  req: Request,
+  res: Response,
+) => {
+  try {
+    const doc = await TimesheetModel.findById(req.params.id);
+    if (!doc) {
+      res.status(404).json({ status: "failed", message: "Timesheet not found" });
+      return;
+    }
+    const { slots } = req.body as {
+      slots?: Array<{
+        _id?: string;
+        label?: string;
+        /** Backfill hint — when present, legacy screenshots whose
+         *  weekStart/weekEnd match are auto-bound to this slot. */
+        weekStart?: string;
+        weekEnd?: string;
+      }>;
+    };
+    if (!Array.isArray(slots)) {
+      res
+        .status(400)
+        .json({ status: "failed", message: "slots must be an array" });
+      return;
+    }
+    const normalized = slots.map((s) => ({
+      _id: s._id || new mongoose.Types.ObjectId().toString(),
+      label: typeof s.label === "string" ? s.label : "",
+      _weekStart: s.weekStart,
+      _weekEnd: s.weekEnd,
+    }));
+    doc.screenshotSlots = normalized.map((s) => ({
+      _id: s._id,
+      label: s.label,
+    })) as unknown as NonNullable<typeof doc.screenshotSlots>;
+    const validIds = new Set(normalized.map((s) => s._id));
+    // First, backfill legacy screenshots: any row without a slotId whose
+    // weekStart/weekEnd match a slot's hint gets re-bound to that slot.
+    // Then drop screenshots whose slotId is no longer in the valid set
+    // (and which aren't a still-unbound legacy row).
+    doc.screenshots = (doc.screenshots || [])
+      .map((s) => {
+        if (s.slotId) return s;
+        const match = normalized.find(
+          (slot) =>
+            slot._weekStart &&
+            slot._weekEnd &&
+            slot._weekStart === s.weekStart &&
+            slot._weekEnd === s.weekEnd,
+        );
+        if (match) {
+          (s as unknown as { slotId: string }).slotId = match._id;
+        }
+        return s;
+      })
+      .filter((s) => !s.slotId || validIds.has(s.slotId));
     await doc.save();
     res.status(200).json({ status: "success", data: doc });
   } catch (error) {
