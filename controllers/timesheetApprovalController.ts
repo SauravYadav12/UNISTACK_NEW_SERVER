@@ -11,6 +11,36 @@ import { emitNotification } from "../services/notificationService";
 import { getErrorMessage } from "../utils/utils";
 import { UserRole } from "../enums/UserEnum";
 
+/**
+ * If an Approved approval points at a generated invoice that no longer
+ * exists (deleted before the cascade-on-delete cleanup landed, or any
+ * other drift), reset the approval to Pending in-place so the panel
+ * exits the "Approved — invoice drafted / Go to invoice" dead-end and
+ * the team can restart the submit/approve cycle. Idempotent — safe to
+ * call on every read.
+ */
+async function healOrphanedApproval(
+  doc: Awaited<ReturnType<typeof TimesheetApprovalModel.findOne>>,
+) {
+  if (!doc) return doc;
+  if (doc.status !== "Approved" || !doc.generatedInvoiceRef) return doc;
+  const invoiceExists = await InvoiceModel.exists({
+    _id: doc.generatedInvoiceRef,
+  });
+  if (invoiceExists) return doc;
+  doc.status = "Pending";
+  doc.generatedInvoiceRef = undefined;
+  doc.requestedAt = undefined;
+  doc.requestedBy = undefined;
+  doc.approvedAt = undefined;
+  doc.approvedBy = undefined;
+  doc.rejectedAt = undefined;
+  doc.rejectedBy = undefined;
+  doc.rejectionReason = undefined;
+  await doc.save();
+  return doc;
+}
+
 export const getApproval = async (req: Request, res: Response) => {
   try {
     const { projectRef, periodMonth } = req.query as {
@@ -23,10 +53,11 @@ export const getApproval = async (req: Request, res: Response) => {
         .json({ status: "failed", message: "projectRef and periodMonth are required" });
       return;
     }
-    const doc = await TimesheetApprovalModel.findOne({
+    let doc = await TimesheetApprovalModel.findOne({
       projectRef: new Types.ObjectId(projectRef),
       periodMonth,
     });
+    doc = await healOrphanedApproval(doc);
     res.status(200).json({ status: "success", data: doc });
   } catch (error) {
     res.status(400).json({ status: "failed", error: getErrorMessage(error) });
