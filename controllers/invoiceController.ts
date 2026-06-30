@@ -129,6 +129,7 @@ export const updateInvoice = async (req: Request, res: Response) => {
       // Admin/super-admin only — see role check below
       invoiceNumber?: string;
       issueDate?: string;
+      dueDate?: string;
     };
     if (Array.isArray(body.lineItems)) {
       doc.lineItems = body.lineItems as typeof doc.lineItems;
@@ -189,6 +190,23 @@ export const updateInvoice = async (req: Request, res: Response) => {
         return;
       }
     }
+    // Manual due-date override. Empty string clears the override and
+    // lets `raiseInvoice` re-compute from issueDate + paymentTerms.days
+    // at raise-time. A non-empty value persists onto the draft so the
+    // admin can stash a preferred due date during editing.
+    if (isPrivileged && typeof body.dueDate === "string") {
+      if (body.dueDate === "") {
+        doc.dueDate = undefined;
+      } else if (moment(body.dueDate, "YYYY-MM-DD", true).isValid()) {
+        doc.dueDate = body.dueDate;
+      } else {
+        res.status(400).json({
+          status: "failed",
+          message: "dueDate must be YYYY-MM-DD",
+        });
+        return;
+      }
+    }
 
     // Belt-and-braces — the pre-save hook on InvoiceModel also does this.
     const t = rebuildTotals(doc.lineItems, doc.taxPercent);
@@ -229,8 +247,9 @@ export const raiseInvoice = async (req: Request, res: Response) => {
       return;
     }
 
-    const { issueDate, to, cc, subject, body, pdfUrl } = req.body as {
+    const { issueDate, dueDate, to, cc, subject, body, pdfUrl } = req.body as {
       issueDate?: string;
+      dueDate?: string;
       to?: string[];
       cc?: string[];
       subject?: string;
@@ -243,8 +262,25 @@ export const raiseInvoice = async (req: Request, res: Response) => {
         ? issueDate
         : moment().format("YYYY-MM-DD");
 
+    // Manual due-date override wins when supplied + valid. Falls back
+    // to the previously-stored override on the draft (set via the
+    // PATCH /invoices/:id flow), then to issueDate + paymentTerms.days.
     const termDays = project.paymentTerms?.days ?? 30;
-    const due = computeDueDate(issue, termDays);
+    let due: string;
+    if (dueDate && moment(dueDate, "YYYY-MM-DD", true).isValid()) {
+      due = dueDate;
+    } else if (
+      doc.dueDate &&
+      moment(doc.dueDate, "YYYY-MM-DD", true).isValid() &&
+      // Only honour the draft's stored override when it's >= issue.
+      // Anything earlier than issue is almost certainly stale data
+      // from a prior issueDate that has since changed.
+      doc.dueDate >= issue
+    ) {
+      due = doc.dueDate;
+    } else {
+      due = computeDueDate(issue, termDays);
+    }
 
     if (typeof pdfUrl === "string" && pdfUrl.length) doc.pdfUrl = pdfUrl;
     doc.issueDate = issue;
