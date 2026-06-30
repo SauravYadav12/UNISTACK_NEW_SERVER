@@ -4,6 +4,7 @@ import {
   LeaveTypeModel,
   suggestLeaveCode,
   ensureUnpaidBucket,
+  ensureCanonicalLeaveTypeFlags,
 } from "../models/leaveTypeModel";
 import { LeaveBalanceModel } from "../models/leaveBalanceModel";
 import { LeaveModel } from "../models/leaveModel";
@@ -15,7 +16,12 @@ export const listLeaveTypes = async (req: Request, res: Response) => {
     // is empty unless the UL bucket row exists. The full seeder skips
     // when the collection already has rows — `ensureUnpaidBucket`
     // closes that gap idempotently on every list call.
-    await ensureUnpaidBucket();
+    // `ensureCanonicalLeaveTypeFlags` likewise self-heals stale flag
+    // values on well-known types (e.g. forces ML.requiresAttachment).
+    await Promise.all([
+      ensureUnpaidBucket(),
+      ensureCanonicalLeaveTypeFlags(),
+    ]);
     const includeInactive = req.query.includeInactive === "true";
     const filter = includeInactive ? {} : { active: true };
     const data = await LeaveTypeModel.find(filter).sort({ name: 1 }).lean();

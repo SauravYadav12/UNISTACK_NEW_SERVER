@@ -284,15 +284,29 @@ export const createLeave = async (req: Request, res: Response) => {
       // server-side closes the back-door for direct API calls and
       // legacy clients. The check is "at least one non-empty URL" so
       // an empty `[""]` array doesn't slip through.
-      if (type?.requiresAttachment) {
+      //
+      // Unpaid Leave (the `isUnpaidBucket` row) is explicitly exempt
+      // even if some careless tooling sets `requiresAttachment: true`
+      // on it — UL is loss-of-pay, not a medical claim, so demanding
+      // a doctor's note for it is never the right ask.
+      //
+      // The OR on the canonical Medical Leave code is the hard
+      // guarantee: even for DB rows that pre-date the flag, ML
+      // applications are required to carry an attachment.
+      const codeIsMedical =
+        ((type?.code as string | undefined) || "").toUpperCase() === "ML";
+      if (type && (type.requiresAttachment || codeIsMedical) && !type.isUnpaidBucket) {
         const attachments = Array.isArray(req.body.attachments)
           ? req.body.attachments.filter(
               (a: unknown) => typeof a === "string" && a.trim() !== "",
             )
           : [];
         if (attachments.length === 0) {
+          const detailCopy = type.code === "ML"
+            ? "Please attach a medical certificate or doctor's note before submitting."
+            : "Please attach supporting documentation before submitting.";
           res.status(400).json({
-            error: `${type.name} requires supporting documentation. Please attach a medical certificate or doctor's note before submitting.`,
+            error: `${type.name} requires supporting documentation. ${detailCopy}`,
           });
           return;
         }

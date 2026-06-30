@@ -119,3 +119,30 @@ export async function ensureUnpaidBucket(): Promise<LeaveTypeDoc | null> {
     return null;
   }
 }
+
+/**
+ * Self-heal the canonical flags on well-known leave types so a system
+ * that pre-dates a particular flag still behaves correctly:
+ *
+ *   - Medical Leave (code "ML") must carry `requiresAttachment: true`.
+ *     Older orgs created ML manually before the flag existed, and the
+ *     apply-leave dialog gates its attachment block on this flag — so
+ *     without the patch HR can't actually require a doctor's note for
+ *     ML applications.
+ *
+ * Idempotent: one indexed query, one $set when out of sync, no-op
+ * otherwise. Safe to call on every leave-type list request.
+ */
+export async function ensureCanonicalLeaveTypeFlags(): Promise<void> {
+  try {
+    await LeaveTypeModel.updateOne(
+      { code: "ML", requiresAttachment: { $ne: true } },
+      { $set: { requiresAttachment: true } },
+    );
+  } catch (err) {
+    console.error(
+      "[leaveType] ensureCanonicalLeaveTypeFlags failed:",
+      (err as Error).message,
+    );
+  }
+}
