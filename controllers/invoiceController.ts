@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import moment from "moment";
 import { InvoiceModel } from "../models/invoiceModel";
 import { ProjectModel } from "../models/projectModel";
+import { TimesheetApprovalModel } from "../models/timesheetApprovalModel";
 import { paginationInstance } from "../utils/pagination";
 import { getErrorMessage } from "../utils/utils";
 import {
@@ -491,6 +492,27 @@ export const deleteInvoice = async (req: Request, res: Response) => {
       return;
     }
     await doc.deleteOne();
+    // Cascade: if this Draft was produced by the approval flow, the linked
+    // TimesheetApproval still points at the now-gone invoice. Reset that
+    // approval to Pending and clear the audit stamps so the timesheet
+    // panel restarts its submit/approve cycle cleanly. Without this, the
+    // panel keeps offering "Go to invoice" → which then 404s.
+    await TimesheetApprovalModel.updateOne(
+      { generatedInvoiceRef: doc._id },
+      {
+        $set: { status: "Pending" },
+        $unset: {
+          generatedInvoiceRef: 1,
+          requestedAt: 1,
+          requestedBy: 1,
+          approvedAt: 1,
+          approvedBy: 1,
+          rejectedAt: 1,
+          rejectedBy: 1,
+          rejectionReason: 1,
+        },
+      },
+    );
     res.status(200).json({ status: "success", data: doc });
   } catch (error) {
     res.status(400).json({ status: "failed", error: getErrorMessage(error) });
