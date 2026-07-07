@@ -6,4 +6,5 @@ export enum UserRole {
   Marketing = "marketing",
   Hr = "hr",
   ProjectCoordinator = "project-coordinator",
+  ChessSales = "chess-sales",
 }

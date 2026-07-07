@@ -322,6 +322,52 @@ export interface IRequirementLog {
   updatedAt: string;
 }
 
+// Chess Lead — subscription-sales pipeline for chess academies.
+// Fields mirror the sales-team's spreadsheet plus a Priority chip
+// (Hot / Warm / Cold) so the dashboard can surface hot leads, and
+// a nextFollowUpDate so we can pull a "due today / overdue" tile.
+export type ChessLeadStatus =
+  | 'New'
+  | 'Renewed'
+  | 'Not renewed'
+  | 'Not converted';
+export type ChessLeadPriority = 'Hot' | 'Warm' | 'Cold';
+
+export interface IChessLead {
+  _id: string;
+  /** Sequential display id: LEAD-01, LEAD-02, … */
+  leadId: string;
+  academyName: string;
+  subscriptionDate?: string;    // YYYY-MM-DD
+  totalIds?: number;
+  mobileNumber?: string;
+  stateOrCity?: string;
+  pricingPerId?: number;
+  status: ChessLeadStatus;
+  priority: ChessLeadPriority;
+  reason?: string;
+  nextFollowUpDate?: string;    // YYYY-MM-DD
+  /** Salesperson who created the lead. Kept for auditing — the team
+   *  pool is shared, so ownership isn't enforced on reads. */
+  createdBy?: string;
+  createdByName?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface IChessLeadLog {
+  _id: string;
+  leadRef: string;
+  leadId: string;
+  operation: 'create' | 'update' | 'delete';
+  userName: string;
+  userRef: string;
+  oldData?: Partial<unknown>;
+  newData: Partial<unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // Interview Log Interface — same shape as the requirement log, just keyed
 // to interview docs. Activity tracking for the interview drawer.
 export interface IInterviewLog {
