@@ -341,12 +341,30 @@ export interface IChessLead {
   subscriptionDate?: string;    // YYYY-MM-DD
   totalIds?: number;
   mobileNumber?: string;
+  /** @deprecated — kept for old rows only; new writes populate the
+   *  country / state / city triplet. Server search still greps this
+   *  field so legacy leads remain findable by the free-text filter. */
   stateOrCity?: string;
+  /** Country / state / city — sourced from the client's country-state-city
+   *  ISO dataset. Iso codes stored alongside display names so edit
+   *  re-cascades without a name-lookup fallback. */
+  country?: string;
+  countryIso?: string;
+  state?: string;
+  stateIso?: string;
+  city?: string;
   pricingPerId?: number;
+  /** GST rate applied on top of totalIds × pricingPerId. Defaults to 18
+   *  (the standard SaaS rate in India); admins can override per lead in
+   *  case a client sits under a different bracket. */
+  gstPercent?: number;
   status: ChessLeadStatus;
   priority: ChessLeadPriority;
   reason?: string;
   nextFollowUpDate?: string;    // YYYY-MM-DD
+  /** Date the client's subscription was most recently renewed. Distinct
+   *  from `subscriptionDate` (the original signup). Optional. */
+  lastRenewalDate?: string;     // YYYY-MM-DD
   /** Salesperson who created the lead. Kept for auditing — the team
    *  pool is shared, so ownership isn't enforced on reads. */
   createdBy?: string;

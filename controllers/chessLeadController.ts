@@ -29,14 +29,33 @@ export const listChessLeads = async (req: Request, res: Response) => {
     const query: Record<string, unknown> = {};
     if (status) query.status = status;
     if (priority) query.priority = priority;
-    if (stateOrCity) query.stateOrCity = new RegExp(stateOrCity, "i");
+    if (stateOrCity) {
+      // Free-text "State / City" filter — matches across all four
+      // location fields (legacy + the new triplet) so old rows stay
+      // findable and typing "Tamil" surfaces state OR city hits.
+      const locRx = new RegExp(stateOrCity, "i");
+      query.$or = [
+        { stateOrCity: locRx },
+        { country: locRx },
+        { state: locRx },
+        { city: locRx },
+      ];
+    }
     if (q && q.trim()) {
       const rx = new RegExp(q.trim(), "i");
-      query.$or = [
+      // When both filters are set, AND their $or arrays via $and so
+      // we don't clobber one with the other.
+      const searchOr = [
         { academyName: rx },
         { mobileNumber: rx },
         { leadId: rx },
       ];
+      if (query.$or) {
+        (query.$and = [{ $or: query.$or }, { $or: searchOr }]);
+        delete query.$or;
+      } else {
+        query.$or = searchOr;
+      }
     }
 
     const pageN = Math.max(1, parseInt(page, 10) || 1);
@@ -81,11 +100,18 @@ export const createChessLead = async (req: Request, res: Response) => {
       totalIds: number;
       mobileNumber: string;
       stateOrCity: string;
+      country: string;
+      countryIso: string;
+      state: string;
+      stateIso: string;
+      city: string;
       pricingPerId: number;
+      gstPercent: number;
       status: string;
       priority: string;
       reason: string;
       nextFollowUpDate: string;
+      lastRenewalDate: string;
     }>;
     if (!body.academyName || !body.academyName.trim()) {
       res.status(400).json({ status: "failed", message: "academyName is required" });
