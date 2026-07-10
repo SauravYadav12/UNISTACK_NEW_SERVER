@@ -9,7 +9,7 @@ export interface LeaveSplitItem {
   days: number;
 }
 
-export interface LeaveDoc extends Omit<ILeave, '_id' | 'userRef' | 'respondBy' | 'respondedAt' | 'createdAt' | 'updatedAt' | 'leaveType' | 'splitBreakdown'>, Document {
+export interface LeaveDoc extends Omit<ILeave, '_id' | 'userRef' | 'respondBy' | 'respondedAt' | 'createdAt' | 'updatedAt' | 'leaveType' | 'splitBreakdown' | 'revokedBy' | 'revokedAt'>, Document {
   _id: Schema.Types.ObjectId;
   userRef: Schema.Types.ObjectId;
   respondBy?: Schema.Types.ObjectId;
@@ -19,6 +19,12 @@ export interface LeaveDoc extends Omit<ILeave, '_id' | 'userRef' | 'respondBy' |
   // overflow is stored here so the admin approval deducts correctly from
   // each bucket. Empty/unset means "deduct everything from leaveType".
   splitBreakdown?: LeaveSplitItem[];
+  // Set when HR reverses an Approved leave. Balance is restored,
+  // attendance stamps are unmarked, but the row is kept so the audit
+  // trail survives. `revokeReason` is HR's free-text note; optional.
+  revokedBy?: Schema.Types.ObjectId;
+  revokedAt?: Date;
+  revokeReason?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -34,6 +40,10 @@ export  enum LeaveStatus {
   Pending = "Pending",
   Approved = "Approved",
   Rejected = "Rejected",
+  // HR reversed an Approved leave — balance restored, attendance
+  // unmarked. Employee can then apply for a fresh date. We keep the
+  // row (not delete) so the audit trail stays intact.
+  Revoked = "Revoked",
 }
 
 export enum HalfDayType {
@@ -100,6 +110,17 @@ const leaveSchema = new Schema<LeaveDoc>(
       type: Date,
     },
     rejectionReason: {
+      type: String,
+      trim: true,
+    },
+    revokedBy: {
+      type: Schema.Types.ObjectId,
+      ref: UserModel,
+    },
+    revokedAt: {
+      type: Date,
+    },
+    revokeReason: {
       type: String,
       trim: true,
     },

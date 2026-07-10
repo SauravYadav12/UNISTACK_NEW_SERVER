@@ -166,10 +166,13 @@ export interface ILeave {
   endDate: string;
   reason?: string;
   type?: 'Sick Leave' | 'Casual Leave' | 'Annual Leave' | 'Other';
-  status?: 'Pending' | 'Approved' | 'Rejected';
+  status?: 'Pending' | 'Approved' | 'Rejected' | 'Revoked';
   respondBy?: string;
   respondedAt?: string;
   rejectionReason?: string;
+  revokedBy?: string;
+  revokedAt?: string;
+  revokeReason?: string;
   isHalfDay?: boolean;
   halfDayType?: 'First Half' | 'Second Half';
   attachments?: string[];

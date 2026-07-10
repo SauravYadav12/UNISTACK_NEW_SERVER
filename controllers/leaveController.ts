@@ -8,8 +8,9 @@ import { sendMail } from "../utils/mailTransporter";
 import { UserModel } from "../models/userModel";
 import { MailOptions } from "nodemailer/lib/sendmail-transport";
 import moment from "moment";
-import { AttendanceStatus } from "../models/attendance";
+import { AttendanceModel, AttendanceStatus } from "../models/attendance";
 import { handleMarkAttendance } from "./attendanceController";
+import { SalarySlipModel } from "../models/salarySlipModel";
 import ENV_VARS from "../config/env.config";
 import { mailSenders } from "../utils/mailSenders";
 import { emitNotification } from "../services/notificationService";
@@ -780,5 +781,151 @@ export const deleteLeave = async (req: Request, res: Response) => {
     res.status(200).json({ data: "deleted successfully" });
   } catch (error) {
     res.status(500).json({ error });
+  }
+};
+
+// ── Revoke an approved leave ──────────────────────────────────────────────
+//
+// HR / SuperAdmin can reverse an Approved leave. The row itself stays
+// (audit trail), but:
+//   - the balance deduction is undone via reverseBalanceEffects
+//   - attendance stamps marked by markAttendanceForLeave are removed
+//     so the days go back to whatever they were before (blank →
+//     whatever the daily attendance cron / manual mark sets)
+//   - status flips to Revoked with actor + timestamp + optional reason
+//   - the employee gets notified so they can apply for a new date
+//
+// Refuses if any month covered by the leave has a published SalarySlip
+// for this user — the slip's leave counts / LOP figures were already
+// computed with this leave included, and silently changing them would
+// invalidate signed / delivered payroll documents. HR must unpublish
+// the slip first, revoke, then regenerate.
+export const revokeLeave = async (req: Request, res: Response) => {
+  try {
+    const me = req.user as UserDoc;
+    const roles = me?.role || [];
+    const isHR =
+      roles.includes(UserRole.Hr) ||
+      roles.includes(UserRole.SuperAdmin) ||
+      roles.includes(UserRole.Admin);
+    if (!isHR) {
+      res.status(403).json({
+        error: "Only HR / SuperAdmin can revoke an approved leave.",
+      });
+      return;
+    }
+
+    const { id } = req.params;
+    const leave = await LeaveModel.findById(id);
+    if (!leave) {
+      res.status(404).json({ error: "Leave not found" });
+      return;
+    }
+    if (leave.status !== LeaveStatus.Approved) {
+      res.status(400).json({
+        error: `Only Approved leaves can be revoked (current status: ${leave.status}).`,
+      });
+      return;
+    }
+
+    // ── Published-slip guard ──
+    // Walk each month touched by the leave span; if any (user, year,
+    // month) has a published SalarySlip, refuse.
+    const start = moment(leave.startDate, "YYYY/MM/DD");
+    const end = moment(leave.endDate, "YYYY/MM/DD");
+    const monthsSeen = new Set<string>();
+    for (
+      const cursor = start.clone().startOf("month");
+      cursor.isSameOrBefore(end, "month");
+      cursor.add(1, "month")
+    ) {
+      monthsSeen.add(`${cursor.year()}-${cursor.month() + 1}`);
+    }
+    for (const key of monthsSeen) {
+      const [yStr, mStr] = key.split("-");
+      const slip = await SalarySlipModel.findOne({
+        user: leave.userRef as unknown as Types.ObjectId,
+        year: parseInt(yStr, 10),
+        month: parseInt(mStr, 10),
+        published: true,
+      }).select("_id year month");
+      if (slip) {
+        const monthLabel = moment(
+          `${slip.year}-${slip.month}-01`,
+          "YYYY-M-D",
+        ).format("MMMM YYYY");
+        res.status(409).json({
+          error:
+            `This leave falls in ${monthLabel}. That month's salary slip is ` +
+            `already published — unpublish it first, then revoke, then ` +
+            `re-generate the slip.`,
+        });
+        return;
+      }
+    }
+
+    // ── Restore balance ──
+    // reverseBalanceEffects reads leave.status internally and no-ops if
+    // it's not Approved — pass the current object BEFORE flipping the
+    // status field so the reversal fires.
+    await reverseBalanceEffects(leave.toObject<ILeave>());
+
+    // ── Unmark attendance stamps ──
+    // markAttendanceForLeave writes one Absent row per weekday in the
+    // range. Delete matching rows. We narrow to `status: Absent` so an
+    // employee's later manual Present/Half-Day corrections don't get
+    // wiped by mistake.
+    const datesToUnmark: string[] = [];
+    for (
+      const cursor = start.clone();
+      cursor.isSameOrBefore(end);
+      cursor.add(1, "day")
+    ) {
+      const dow = cursor.day();
+      if (dow === 0 || dow === 6) continue;
+      datesToUnmark.push(cursor.format("YYYY/MM/DD"));
+    }
+    if (datesToUnmark.length) {
+      await AttendanceModel.deleteMany({
+        userRef: leave.userRef,
+        date: { $in: datesToUnmark },
+        status: AttendanceStatus.Absent,
+      });
+    }
+
+    // ── Flip status ──
+    leave.status = LeaveStatus.Revoked;
+    leave.revokedBy = me._id as unknown as typeof leave.revokedBy;
+    leave.revokedAt = new Date();
+    if (typeof req.body?.reason === "string" && req.body.reason.trim()) {
+      leave.revokeReason = String(req.body.reason).trim().slice(0, 500);
+    }
+    await leave.save();
+
+    // ── Notify the employee ──
+    const recipient = await UserModel.findById(leave.userRef).select(
+      "firstName email",
+    );
+    if (recipient) {
+      void emitNotification({
+        recipients: [leave.userRef as unknown as Types.ObjectId],
+        type: "LEAVE_REVOKED",
+        title: `Approved leave was revoked for ${recipient.firstName || "you"}`,
+        body:
+          `${leave.startDate} → ${leave.endDate} was revoked by ${me.firstName || me.email}. ` +
+          `Your balance has been restored — you can apply for a new date.` +
+          (leave.revokeReason ? ` Reason: ${leave.revokeReason}` : ""),
+        link: { kind: "leave", leaveId: String(leave._id) },
+        actor: {
+          _id: me._id,
+          name: `${me.firstName || ""} ${me.lastName || ""}`.trim() || me.email,
+        },
+      });
+    }
+
+    res.status(200).json({ data: leave });
+  } catch (error) {
+    console.error("revokeLeave failed:", error);
+    res.status(500).json({ error: (error as Error).message || String(error) });
   }
 };

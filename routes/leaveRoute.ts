@@ -7,6 +7,7 @@ import {
   getLeaveById,
   getLeaves,
   getMyProbationStatus,
+  revokeLeave,
   updateLeave,
 } from "../controllers/leaveController";
 const leaveRoute = Router();
@@ -33,6 +34,14 @@ leaveRoute.patch(
   "/:id",
   passport.authenticate("jwt", { session: false }),
   updateLeave
+);
+// Revoke an Approved leave. HR / SuperAdmin only — the controller
+// enforces the role check. Refuses if any month covered by the leave
+// has a published SalarySlip.
+leaveRoute.post(
+  "/:id/revoke",
+  passport.authenticate("jwt", { session: false }),
+  revokeLeave,
 );
 leaveRoute.get(
   "/",
