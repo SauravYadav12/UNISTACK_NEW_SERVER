@@ -239,6 +239,7 @@ export interface PulseStatusDrilldownReq {
   relevantField:
     | "createdAt"
     | "updatedAt"
+    | "_perfInProgressAt"
     | "_perfSubmittedAt"
     | "_perfInterviewedAt"
     | "_perfProjectActiveAt"
@@ -457,7 +458,7 @@ export async function buildEmployeePulseBundle(
   };
 
   const reqSelect =
-    "reqID reqStatus assignedToRef reqEnteredByRef parentReqID childSuffix isDuplicate jobTitle primaryTech secondaryTech primaryTechStack clientCompany employementType taxType remote starColor createdAt updatedAt _perfSubmittedAt _perfInterviewedAt _perfProjectActiveAt _perfProjectInactiveAt _perfStaleSubmissionFiredAt _perfUnworkedPenaltyFiredAt _perfUnprogressedPenaltyFiredAt";
+    "reqID reqStatus assignedToRef reqEnteredByRef parentReqID childSuffix isDuplicate jobTitle primaryTech secondaryTech primaryTechStack clientCompany employementType taxType remote starColor createdAt updatedAt _perfInProgressAt _perfSubmittedAt _perfInterviewedAt _perfProjectActiveAt _perfProjectInactiveAt _perfStaleSubmissionFiredAt _perfUnworkedPenaltyFiredAt _perfUnprogressedPenaltyFiredAt";
 
   const [reqs, allInterviews, filteredReqIdsForTrend] = await Promise.all([
     RequirementModel.find(reqQuery).select(reqSelect).lean(),
@@ -622,6 +623,12 @@ export async function buildEmployeePulseBundle(
     };
     for (const r of ownedReqs) {
       const cur = String(r.reqStatus || "").trim();
+      // Every stage tracked by a perf-stamp uses that timestamp — so a
+      // req counts under "In Progress" the day it entered that stage,
+      // regardless of where it is now.
+      if (inWindow(r._perfInProgressAt))
+        statusCounts["Submission in progress"] =
+          (statusCounts["Submission in progress"] || 0) + 1;
       if (inWindow(r._perfSubmittedAt))
         statusCounts["Submitted"] = (statusCounts["Submitted"] || 0) + 1;
       if (inWindow(r._perfInterviewedAt))
@@ -632,11 +639,14 @@ export async function buildEmployeePulseBundle(
       if (inWindow(r._perfProjectInactiveAt))
         statusCounts["Project Inactive"] =
           (statusCounts["Project Inactive"] || 0) + 1;
-      if (cur === "New Working" && inWindow(r.createdAt))
+      // "New Working" has no perf stamp of its own — it's the default
+      // status on creation, so createdAt IS the transition timestamp.
+      // Count every req created in the window, whether or not it later
+      // advanced — mirrors the "hit this stage in window" rule above.
+      if (inWindow(r.createdAt))
         statusCounts["New Working"] = (statusCounts["New Working"] || 0) + 1;
-      if (cur === "Submission in progress" && inWindow(r.updatedAt))
-        statusCounts["Submission in progress"] =
-          (statusCounts["Submission in progress"] || 0) + 1;
+      // "Cancelled" has no perf stamp either — closest proxy is
+      // updatedAt while the current status is Cancelled.
       if (cur === "Cancelled" && inWindow(r.updatedAt))
         statusCounts["Cancelled"] = (statusCounts["Cancelled"] || 0) + 1;
     }
@@ -1216,14 +1226,17 @@ function statusDrilldownFilter(
         relevantField: "_perfProjectInactiveAt",
       };
     case "New Working":
+      // No current-status gate — a req counts under New Working the day
+      // it was created, even if it has since advanced. Matches KPI card
+      // logic.
       return {
-        filter: { reqStatus: "New Working", createdAt: win },
+        filter: { createdAt: win },
         relevantField: "createdAt",
       };
     case "Submission in progress":
       return {
-        filter: { reqStatus: "Submission in progress", updatedAt: win },
-        relevantField: "updatedAt",
+        filter: { _perfInProgressAt: win },
+        relevantField: "_perfInProgressAt",
       };
     case "Cancelled":
       return {

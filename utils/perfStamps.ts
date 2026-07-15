@@ -15,6 +15,18 @@ import { InterviewModel } from "../models/interviewModel";
  * failure never breaks the underlying business write.
  */
 
+// "Submission in progress" and everything downstream implies the req
+// went through the in-progress stage — so we forward-fill the perf
+// stamp for any of these (matching the same idempotent "set once"
+// pattern used for _perfSubmittedAt).
+const IN_PROGRESS_OR_BEYOND = new Set([
+  "Submission in progress",
+  "Submitted",
+  "Interviewed",
+  "Project Active",
+  "Project Inactive",
+]);
+
 const SUBMITTED_OR_BEYOND = new Set([
   "Submitted",
   "Interviewed",
@@ -70,6 +82,9 @@ export async function stampReqStatusMilestones(
   now: Date = new Date(),
 ): Promise<void> {
   if (!reqStatus) return;
+  if (IN_PROGRESS_OR_BEYOND.has(reqStatus)) {
+    await setOnceOnReq(reqId, "_perfInProgressAt", now);
+  }
   if (SUBMITTED_OR_BEYOND.has(reqStatus)) {
     await setOnceOnReq(reqId, "_perfSubmittedAt", now);
   }
