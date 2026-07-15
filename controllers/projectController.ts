@@ -12,6 +12,11 @@ import {
 } from "../utils/searchStringOperation";
 import { emitNotification } from "../services/notificationService";
 import { UserRole } from "../enums/UserEnum";
+import { TimesheetModel } from "../models/timesheetModel";
+import { TimesheetApprovalModel } from "../models/timesheetApprovalModel";
+import { InvoiceModel } from "../models/invoiceModel";
+import { NotificationModel } from "../models/notificationModel";
+import { deleteS3ObjectByUrl } from "./storageController";
 
 // Fields copied verbatim from Requirement → Project at creation time.
 // After this snapshot, later edits to the Requirement do NOT mutate the
@@ -385,6 +390,101 @@ export const deleteProject = async (req: Request, res: Response) => {
       status: "success",
       message: "Project deleted successfully",
       data: removed,
+    });
+  } catch (error) {
+    res
+      .status(400)
+      .json({ status: "failed", error: getErrorMessage(error) });
+  }
+};
+
+/**
+ * Super-admin only. Removes the Project and every trace of it from the
+ * DB + object storage:
+ *   - Timesheet / TimesheetApproval / Invoice rows keyed by projectRef
+ *   - Notifications with link.projectId == projectId string
+ *   - S3 objects: project contract PDFs, documentation attachments,
+ *     timesheet screenshots, invoice PDFs
+ *
+ * S3 failures are logged but never abort the delete — the DB rows going
+ * away is the load-bearing guarantee; orphan blobs can be reconciled by
+ * a bucket janitor later. Order: read → cascade DB deletes → S3 sweep →
+ * delete Project last (so if anything above throws, the Project stays
+ * and the admin can retry).
+ */
+export const hardDeleteProject = async (req: Request, res: Response) => {
+  try {
+    const project = await ProjectModel.findById(req.params.id).lean();
+    if (!project) {
+      res.status(404).json({ status: "failed", message: "Project not found" });
+      return;
+    }
+    const projectId = String(project._id);
+    const projectIdStr = (project as { projectId?: string }).projectId || "";
+
+    // Snapshot every S3 URL before we delete the DB rows they live on.
+    const s3Urls: string[] = [];
+    const contracts = (project as { contracts?: Array<{ url?: string }> }).contracts || [];
+    for (const c of contracts) if (c.url) s3Urls.push(c.url);
+    const doc = (project as { documentation?: Record<string, { attachmentUrl?: string }> }).documentation || {};
+    for (const key of Object.keys(doc)) {
+      const url = doc[key]?.attachmentUrl;
+      if (url) s3Urls.push(url);
+    }
+
+    const [timesheets, invoices] = await Promise.all([
+      TimesheetModel.find({ projectRef: project._id })
+        .select("screenshots")
+        .lean(),
+      InvoiceModel.find({ projectRef: project._id }).select("pdfUrl").lean(),
+    ]);
+    for (const t of timesheets as Array<{ screenshots?: Array<{ url?: string }> }>) {
+      for (const s of t.screenshots || []) if (s.url) s3Urls.push(s.url);
+    }
+    for (const inv of invoices as Array<{ pdfUrl?: string }>) {
+      if (inv.pdfUrl) s3Urls.push(inv.pdfUrl);
+    }
+
+    // DB cascade.
+    const [tsRes, tsaRes, invRes, notifRes] = await Promise.all([
+      TimesheetModel.deleteMany({ projectRef: project._id }),
+      TimesheetApprovalModel.deleteMany({ projectRef: project._id }),
+      InvoiceModel.deleteMany({ projectRef: project._id }),
+      projectIdStr
+        ? NotificationModel.deleteMany({ "link.projectId": projectIdStr })
+        : Promise.resolve({ deletedCount: 0 }),
+    ]);
+
+    // S3 sweep — best-effort, tolerate individual failures.
+    let s3Deleted = 0;
+    let s3Failed = 0;
+    for (const url of s3Urls) {
+      try {
+        const ok = await deleteS3ObjectByUrl(url);
+        if (ok) s3Deleted++;
+        else s3Failed++;
+      } catch {
+        s3Failed++;
+      }
+    }
+
+    await ProjectModel.deleteOne({ _id: project._id });
+
+    res.status(200).json({
+      status: "success",
+      message: "Project and all related data permanently deleted",
+      data: {
+        projectId,
+        projectIdStr,
+        counts: {
+          timesheets: tsRes.deletedCount || 0,
+          approvals: tsaRes.deletedCount || 0,
+          invoices: invRes.deletedCount || 0,
+          notifications: notifRes.deletedCount || 0,
+          s3Deleted,
+          s3Failed,
+        },
+      },
     });
   } catch (error) {
     res

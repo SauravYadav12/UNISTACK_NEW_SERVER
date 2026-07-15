@@ -1,6 +1,6 @@
 import express from "express";
 import passport from "passport";
-import { anyRoleGuard } from "../middleware/adminGuard";
+import { anyRoleGuard, roleGuard } from "../middleware/adminGuard";
 import { UserRole } from "../enums/UserEnum";
 import {
   getAllProjects,
@@ -9,6 +9,7 @@ import {
   suggestProjectId,
   updateProject,
   deleteProject,
+  hardDeleteProject,
   addAdditionalDetail,
   updateAdditionalDetail,
   removeAdditionalDetail,
@@ -31,6 +32,12 @@ projectRoute.get("/get-project/:id", jwt, getProjectById);
 projectRoute.post("/create-project", jwt, writers, createProjectFromRequirement);
 projectRoute.patch("/update-project/:id", jwt, writers, updateProject);
 projectRoute.delete("/delete-project/:id", jwt, writers, deleteProject);
+projectRoute.delete(
+  "/hard-delete/:id",
+  jwt,
+  roleGuard(UserRole.SuperAdmin),
+  hardDeleteProject,
+);
 
 projectRoute.post("/:id/additional-details", jwt, writers, addAdditionalDetail);
 projectRoute.patch(
