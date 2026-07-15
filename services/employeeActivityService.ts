@@ -280,13 +280,24 @@ function buildBucketList(from: Date, to: Date, bucket: PulseBucket): string[] {
   const cursor = moment(bucketStart(from, bucket));
   const stop = moment(to);
   while (cursor.isSameOrBefore(stop)) {
-    out.push(cursor.format("YYYY-MM-DD"));
+    // Daily buckets exclude weekends — Saturdays and Sundays waste
+    // chart real estate for an org that doesn't operate on those days.
+    // Weekly / bi-weekly / monthly buckets naturally absorb weekends,
+    // so the filter only applies to `day`.
+    if (bucket !== "day" || !isWeekend(cursor)) {
+      out.push(cursor.format("YYYY-MM-DD"));
+    }
     if (bucket === "day") cursor.add(1, "day");
     else if (bucket === "week") cursor.add(1, "week");
     else if (bucket === "biweek") cursor.add(2, "week");
     else cursor.add(1, "month");
   }
   return out;
+}
+
+function isWeekend(m: moment.Moment): boolean {
+  const dow = m.isoWeekday(); // 1=Mon..7=Sun
+  return dow === 6 || dow === 7;
 }
 
 function displayName(u: {
@@ -773,22 +784,33 @@ async function buildProactivityData(
   const [directUsers, allActiveUsers] = await Promise.all([
     directIds.length
       ? UserModel.find({ _id: { $in: directIds } })
-          .select("firstName lastName email")
+          .select("firstName lastName email role")
           .lean()
       : Promise.resolve([]),
-    UserModel.find({ active: true })
-      .select("firstName lastName email")
+    // Marketing-only roster — proactivity ranks who acted on the client
+    // pipeline; support staff commenting on internal notes shouldn't
+    // register as "first actor". A support-only user's comment gets
+    // silently ignored.
+    UserModel.find({ active: true, role: UserRole.Marketing })
+      .select("firstName lastName email role")
       .lean(),
   ]);
 
   const userById = new Map<string, { userId: string; name: string }>();
   for (const u of directUsers) {
+    // Skip support-only entries here too so the per-position table + the
+    // `enteredBy` fallback don't attribute marketing action to a
+    // support user pulled in only via `reqEnteredByRef` on the parent.
+    // We still keep them for the "entered by" column via a separate
+    // `supportUserById` map computed below.
     userById.set(String(u._id), {
       userId: String(u._id),
       name: displayName(u),
     });
   }
   // Roster used for name-string → userId mapping on mComment entries.
+  // Only marketers land in this map because `allActiveUsers` is
+  // marketing-role-only above.
   const userByName = new Map<string, { userId: string; name: string }>();
   for (const u of allActiveUsers) {
     const n = displayName(u).toLowerCase();

@@ -23,6 +23,7 @@ import {
 } from "../services/employeeActivityService";
 import { myDate } from "../utils/dateUtil";
 import { getErrorMessage } from "../utils/utils";
+import { UserRole } from "../enums/UserEnum";
 
 const ALLOWED_GROUP_BY: PulseGroupBy[] = [
   "jobTitle",
@@ -211,7 +212,14 @@ export const getStatusDrilldown = async (req: Request, res: Response) => {
  *  User model. */
 export const listPulseEmployees = async (_req: Request, res: Response) => {
   try {
-    const users = await UserModel.find({ active: true })
+    // Employee Pulse is scoped to the marketing team for now — the KPIs,
+    // proactivity board, and trend chart all measure marketing work.
+    // Support / HR / other roles are hidden from the picker to keep the
+    // dashboard's audience clear.
+    const users = await UserModel.find({
+      active: true,
+      role: UserRole.Marketing,
+    })
       .select("firstName lastName email role")
       .sort({ firstName: 1 })
       .lean();
