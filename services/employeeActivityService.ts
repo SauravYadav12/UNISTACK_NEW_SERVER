@@ -40,6 +40,10 @@ import {
   PerformanceWeightsModel,
 } from "../models/performanceWeightsModel";
 import { UserRole } from "../enums/UserEnum";
+import {
+  resolveTitles,
+  type CanonicalGroupType,
+} from "./titleCanonicalService";
 
 // ─── Public types ───────────────────────────────────────────────────
 
@@ -55,6 +59,7 @@ export type PulseGroupBy =
 
 export type PulseBucket = "day" | "week" | "biweek" | "month";
 export type PulseMetric =
+  | "positions"
   | "submissions"
   | "interviewsCompleted"
   | "offers"
@@ -167,7 +172,15 @@ export interface PulseProactivityActor {
   userId: string;
   name: string;
   firstActionAt: string; // ISO
-  firstActionKind: "child" | "comment";
+  /**
+   * Kind of the winning first action. Always "comment" for now — the
+   * rule is: first comment on any child of the parent req wins. Kept as
+   * a union to leave room for future action kinds without a client
+   * breaking-change.
+   */
+  firstActionKind: "comment";
+  /** reqID of the child req the comment was placed on. */
+  childReqID?: string;
   msFromEntry: number;
 }
 
@@ -207,6 +220,30 @@ export interface PulseBundle {
   metricsGrid: Record<string, Record<string, number>>;
   trend: PulseTrend;
   proactivity: PulseProactivity;
+}
+
+/**
+ * Row shape returned by the KPI status drilldown. `relevantTimestamp`
+ * is the timestamp field that qualified this req into the requested
+ * status window (e.g. _perfSubmittedAt for "Submitted", createdAt for
+ * "New Working", updatedAt for the non-perf statuses).
+ */
+export interface PulseStatusDrilldownReq {
+  reqID: string;
+  reqStatus: string;
+  jobTitle: string;
+  clientCompany: string;
+  primaryTech?: string;
+  createdAt: string;
+  updatedAt: string;
+  relevantAt: string;
+  relevantField:
+    | "createdAt"
+    | "updatedAt"
+    | "_perfSubmittedAt"
+    | "_perfInterviewedAt"
+    | "_perfProjectActiveAt"
+    | "_perfProjectInactiveAt";
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────
@@ -366,7 +403,7 @@ export async function buildEmployeePulseBundle(
   const reqFilter = buildReqFilterQuery(input.reqFilter);
   const groupBy: PulseGroupBy = input.groupBy || "jobTitle";
   const bucket: PulseBucket = input.bucket || "day";
-  const metric: PulseMetric = input.metric || "submissions";
+  const metric: PulseMetric = input.metric || "positions";
 
   // ── Users lookup ──
   const userDocs = userIds.length
@@ -533,24 +570,48 @@ export async function buildEmployeePulseBundle(
       cursor.subtract(1, "day");
     }
 
-    // Snapshot counts by current reqStatus. Union of `assignedToRef`
-    // and `reqEnteredByRef` matches (a req the user owns in either lane
-    // is counted once).
-    const ownedReqs = (reqs as unknown as Array<{
-      assignedToRef?: unknown;
-      reqEnteredByRef?: unknown;
-      reqStatus?: string;
-      _id?: unknown;
-    }>).filter(
+    // Per-status counts within the [from, to] window. A req can bump
+    // multiple statuses within one window (e.g. Submitted at 10am + hit
+    // Interviewed at 3pm the same day) — both are counted, matching the
+    // "activity in this window" mental model.
+    //
+    // Perf-stamped statuses: use their timestamp regardless of current
+    // status (a req that hit Submitted in the window still counts even
+    // if it's now Interviewed).
+    // Non-perf statuses (New Working / In progress / Cancelled): use
+    // createdAt or updatedAt, but only when the current status matches
+    // (we can't otherwise tell when the transition happened).
+    const ownedReqs = (reqs as unknown as Array<Record<string, unknown>>).filter(
       (r) =>
         String(r.assignedToRef || "") === uid ||
         String(r.reqEnteredByRef || "") === uid,
     );
     const statusCounts: Record<string, number> = {};
+    const inWindow = (raw: unknown): boolean => {
+      if (!raw) return false;
+      const d = raw instanceof Date ? raw : new Date(raw as string);
+      if (isNaN(d.getTime())) return false;
+      return d >= from && d <= to;
+    };
     for (const r of ownedReqs) {
-      const s = (r.reqStatus || "").trim();
-      if (!s) continue;
-      statusCounts[s] = (statusCounts[s] || 0) + 1;
+      const cur = String(r.reqStatus || "").trim();
+      if (inWindow(r._perfSubmittedAt))
+        statusCounts["Submitted"] = (statusCounts["Submitted"] || 0) + 1;
+      if (inWindow(r._perfInterviewedAt))
+        statusCounts["Interviewed"] = (statusCounts["Interviewed"] || 0) + 1;
+      if (inWindow(r._perfProjectActiveAt))
+        statusCounts["Project Active"] =
+          (statusCounts["Project Active"] || 0) + 1;
+      if (inWindow(r._perfProjectInactiveAt))
+        statusCounts["Project Inactive"] =
+          (statusCounts["Project Inactive"] || 0) + 1;
+      if (cur === "New Working" && inWindow(r.createdAt))
+        statusCounts["New Working"] = (statusCounts["New Working"] || 0) + 1;
+      if (cur === "Submission in progress" && inWindow(r.updatedAt))
+        statusCounts["Submission in progress"] =
+          (statusCounts["Submission in progress"] || 0) + 1;
+      if (cur === "Cancelled" && inWindow(r.updatedAt))
+        statusCounts["Cancelled"] = (statusCounts["Cancelled"] || 0) + 1;
     }
 
     return {
@@ -593,7 +654,7 @@ export async function buildEmployeePulseBundle(
   });
 
   // ── Trend series ──
-  const trend = computeTrend({
+  const trend = await computeTrend({
     reqs: filteredReqIdsForTrend as unknown as ReqForScoring[],
     interviews: allInterviews as unknown as InterviewForScoring[],
     weightsMkt,
@@ -665,18 +726,21 @@ async function buildProactivityData(
     .map((p) => (p as { reqID?: string }).reqID)
     .filter(Boolean) as string[];
 
-  // 2. Children of those parents. No date filter on child fetch — a child
-  //    created after the window still counts as an action on its (in-window)
-  //    parent.
+  // 2. Children of those parents. No date filter on child fetch — a
+  //    comment placed on a child after the parent's entry window still
+  //    counts as an action on that (in-window) parent. mComment carries
+  //    the commenter's display name (not a ref), so we resolve names to
+  //    userIds via the active-user roster loaded below.
   const children = await RequirementModel.find({
     parentReqID: { $in: parentReqIDs },
   } as FilterQuery<Record<string, unknown>>)
-    .select("reqID parentReqID assignedToRef createdAt")
+    .select("reqID parentReqID assignedToRef createdAt mComment")
     .lean();
 
-  // 3. Resolve users referenced by (a) reqEnteredByRef on parents, (b)
-  //    assignedToRef on children. Also fetch the active user roster once
-  //    for mComment name-matching.
+  // 3. Resolve users referenced by reqEnteredByRef on parents +
+  //    assignedToRef on children (used only for display in the
+  //    per-position table). Also fetch the active user roster for
+  //    mComment name-matching (that's what actually decides actors).
   const supportIds = new Set<string>();
   for (const p of parents) {
     const uid = (p as { reqEnteredByRef?: unknown }).reqEnteredByRef;
@@ -720,21 +784,25 @@ async function buildProactivityData(
     }
   }
 
-  // 4. Bucket children under their parent for the actor computation.
-  const childrenByParent = new Map<
-    string,
-    Array<{ assignedToRef?: unknown; createdAt?: Date }>
-  >();
+  // 4. Bucket children under their parent — we need every child's
+  //    mComment list to determine actors.
+  type ChildLite = {
+    reqID?: string;
+    assignedToRef?: unknown;
+    mComment?: Array<{ username?: string; date?: Date | string }>;
+  };
+  const childrenByParent = new Map<string, ChildLite[]>();
   for (const c of children) {
     const p = (c as { parentReqID?: string }).parentReqID;
     if (!p) continue;
     if (!childrenByParent.has(p)) childrenByParent.set(p, []);
-    childrenByParent.get(p)!.push(
-      c as { assignedToRef?: unknown; createdAt?: Date },
-    );
+    childrenByParent.get(p)!.push(c as ChildLite);
   }
 
-  // 5. Per parent, gather all actor events, keep min per user, sort asc.
+  // 5. Per parent, gather actor events — a "first action" is the first
+  //    comment (mComment[]) added on any child of that parent. A
+  //    marketer who was assigned a child but never commented does NOT
+  //    count as an actor.
   const reqsOut: PulseProactivityReq[] = [];
   let unclaimedParents = 0;
 
@@ -745,68 +813,60 @@ async function buildProactivityData(
       clientCompany?: string;
       createdAt?: Date;
       reqEnteredByRef?: unknown;
-      mComment?: Array<{ username?: string; date?: Date | string }>;
     };
     if (!p.reqID || !p.createdAt) continue;
     const enteredAt = p.createdAt as Date;
 
-    // Actor bucket: userId → { firstActionAt, firstActionKind }
+    // Actor bucket: userId → { earliest comment date, childReqID it was on }
     const perUser = new Map<
       string,
-      { at: Date; kind: "child" | "comment" }
+      { at: Date; childReqID?: string }
     >();
 
     const bump = (
       userId: string,
       raw: Date | string | number | undefined,
-      kind: "child" | "comment",
+      childReqID: string | undefined,
     ) => {
       // Legacy `mComment[].date` rows can be plain strings — Mongoose
-      // doesn't coerce them retroactively. Normalise to Date here so
+      // doesn't coerce them retroactively. Normalise to Date so
       // downstream `toISOString()`/`getTime()` are always safe.
       if (raw === undefined || raw === null) return;
       const at = raw instanceof Date ? raw : new Date(raw);
       if (isNaN(at.getTime())) return;
       const prev = perUser.get(userId);
       if (!prev || at < prev.at) {
-        perUser.set(userId, { at, kind });
+        perUser.set(userId, { at, childReqID });
       }
     };
 
-    // Child creations
+    // Comments on children only. (Parent comments intentionally
+    // ignored — the product rule is "first comment on a child req".)
     const cs = childrenByParent.get(p.reqID) || [];
     for (const c of cs) {
-      const uid = c.assignedToRef ? String(c.assignedToRef) : "";
-      if (!uid || !c.createdAt) continue;
-      bump(uid, c.createdAt as Date | string, "child");
-    }
-
-    // Comments — name-match to user roster.
-    const comments = Array.isArray(p.mComment) ? p.mComment : [];
-    for (const cm of comments) {
-      const name = (cm.username || "").trim().toLowerCase();
-      const d = cm.date;
-      if (!name || !d) continue;
-      const u = userByName.get(name);
-      if (!u) continue; // unresolvable → silently drop
-      bump(u.userId, d as Date | string, "comment");
+      const comments = Array.isArray(c.mComment) ? c.mComment : [];
+      for (const cm of comments) {
+        const name = (cm.username || "").trim().toLowerCase();
+        if (!name || !cm.date) continue;
+        const u = userByName.get(name);
+        if (!u) continue; // unresolvable → silently drop
+        bump(u.userId, cm.date, c.reqID);
+      }
     }
 
     const actors: PulseProactivityActor[] = [];
     for (const [uid, entry] of perUser.entries()) {
-      const u = userById.get(uid) || userByName.get(
-        // Fall back to roster lookup if this user wasn't in the direct
-        // users batch (can happen when the user only appears via a
-        // comment, not via a child assignment).
-        Array.from(userByName.values()).find((r) => r.userId === uid)?.name.toLowerCase() || "",
-      );
-      const name = u?.name || (u as { name?: string } | undefined)?.name || uid;
+      const u =
+        userById.get(uid) ||
+        Array.from(userByName.values()).find((r) => r.userId === uid);
+      const name = u?.name || uid;
       actors.push({
         userId: uid,
         name,
-        firstActionAt: (entry.at as Date).toISOString(),
-        firstActionKind: entry.kind,
-        msFromEntry: Math.max(0, (entry.at as Date).getTime() - enteredAt.getTime()),
+        firstActionAt: entry.at.toISOString(),
+        firstActionKind: "comment",
+        childReqID: entry.childReqID,
+        msFromEntry: Math.max(0, entry.at.getTime() - enteredAt.getTime()),
       });
     }
     actors.sort((a, b) => a.firstActionAt.localeCompare(b.firstActionAt));
@@ -919,20 +979,50 @@ interface TrendArgs {
   userIds: string[];
 }
 
-function computeTrend(args: TrendArgs): PulseTrend {
+async function computeTrend(args: TrendArgs): Promise<PulseTrend> {
   const { reqs, interviews, groupBy, bucket, metric, from, to, userIds, weightsMkt } = args;
   const xAxis = buildBucketList(from, to, bucket);
 
-  // Build reqID → group value map from the trend req set.
-  const reqGroup = new Map<string, string>();
+  // Build reqID → raw group value map first.
+  const reqRawGroup = new Map<string, string>();
   const reqById = new Map<string, ReqForScoring>();
   for (const r of reqs) {
     if (!r.reqID) continue;
     reqById.set(r.reqID, r);
     const val = extractGroupValue(r, groupBy);
-    if (val) reqGroup.set(r.reqID, val);
+    if (val) reqRawGroup.set(r.reqID, val);
   }
 
+  // Canonicalise the raws for text-typed group fields so seniority /
+  // spelling variants collapse into a single line. Array-typed fields
+  // (taxType, remote, employementType) skip this pass — they're already
+  // small enums.
+  const canonicaliseFields: Record<PulseGroupBy, boolean> = {
+    jobTitle: true,
+    primaryTech: true,
+    secondaryTech: true,
+    primaryTechStack: true,
+    clientCompany: true,
+    employementType: false,
+    taxType: false,
+    remote: false,
+  };
+  const reqGroup = new Map<string, string>();
+  if (canonicaliseFields[groupBy]) {
+    const uniqueRaws = Array.from(new Set(reqRawGroup.values()));
+    const canonMap = await resolveTitles(
+      uniqueRaws,
+      groupBy as CanonicalGroupType,
+    );
+    for (const [reqID, raw] of reqRawGroup.entries()) {
+      const c = canonMap.get(raw.trim().toLowerCase());
+      reqGroup.set(reqID, c || raw);
+    }
+  } else {
+    for (const [reqID, raw] of reqRawGroup.entries()) reqGroup.set(reqID, raw);
+  }
+
+  // For positions → count reqs by createdAt in window.
   // For submissions/score → use req._perfSubmittedAt.
   // For interviewsCompleted → use interview._perfCompletedAt keyed to req.
   // For offers → interview._perfOfferAt keyed to req.
@@ -956,9 +1046,29 @@ function computeTrend(args: TrendArgs): PulseTrend {
   const subWeight = w("SUBMISSION_WEIGHT", 2);
   const intWeight = w("INTERVIEW_COMPLETED_WEIGHT", 10);
 
+  const wantPositions = metric === "positions";
   const wantSubs = metric === "submissions" || metric === "score";
   const wantIntComp = metric === "interviewsCompleted" || metric === "score";
   const wantOffers = metric === "offers";
+
+  if (wantPositions) {
+    for (const r of reqs) {
+      const rec = r as unknown as Record<string, unknown>;
+      const rawAt = rec.createdAt;
+      if (!rawAt) continue;
+      const t = rawAt instanceof Date ? rawAt : new Date(rawAt as string);
+      if (isNaN(t.getTime()) || t < from || t > to) continue;
+      const group = reqGroup.get(r.reqID || "");
+      if (!group) continue;
+      const bucketISO = bucketStart(t, bucket);
+      bumpSeries(group, bucketISO, 1);
+      // Positions overlay = the marketer assigned to the req at creation
+      // time (parent reqs may have no assignedToRef at that instant, in
+      // which case there's nothing to attribute).
+      const uid = String(r.assignedToRef || "");
+      if (uid && userIds.includes(uid)) bumpOverlay(uid, bucketISO, 1);
+    }
+  }
 
   if (wantSubs) {
     for (const r of reqs) {
@@ -1069,4 +1179,110 @@ function extractGroupValue(
   }
   if (typeof raw === "string") return raw.trim() || undefined;
   return undefined;
+}
+
+// ─── Status drilldown ───────────────────────────────────────────────
+
+/**
+ * Build the Mongo filter fragment that pulls the reqs which entered the
+ * requested status within [from, to]. Mirrors the in-memory logic used
+ * by KPI statusCounts so counts + drilldown always agree.
+ *
+ * Returns `null` for unrecognised statuses so the controller can 400.
+ */
+function statusDrilldownFilter(
+  status: string,
+  from: Date,
+  to: Date,
+): { filter: FilterQuery<Record<string, unknown>>; relevantField: string } | null {
+  const win = { $gte: from, $lte: to };
+  switch (status) {
+    case "Submitted":
+      return { filter: { _perfSubmittedAt: win }, relevantField: "_perfSubmittedAt" };
+    case "Interviewed":
+      return { filter: { _perfInterviewedAt: win }, relevantField: "_perfInterviewedAt" };
+    case "Project Active":
+      return {
+        filter: { _perfProjectActiveAt: win },
+        relevantField: "_perfProjectActiveAt",
+      };
+    case "Project Inactive":
+      return {
+        filter: { _perfProjectInactiveAt: win },
+        relevantField: "_perfProjectInactiveAt",
+      };
+    case "New Working":
+      return {
+        filter: { reqStatus: "New Working", createdAt: win },
+        relevantField: "createdAt",
+      };
+    case "Submission in progress":
+      return {
+        filter: { reqStatus: "Submission in progress", updatedAt: win },
+        relevantField: "updatedAt",
+      };
+    case "Cancelled":
+      return {
+        filter: { reqStatus: "Cancelled", updatedAt: win },
+        relevantField: "updatedAt",
+      };
+    default:
+      return null;
+  }
+}
+
+export async function buildStatusDrilldown(input: {
+  userId: string;
+  statusKey: string;
+  from: Date;
+  to: Date;
+  reqFilter?: PulseReqFilter;
+}): Promise<PulseStatusDrilldownReq[]> {
+  if (!Types.ObjectId.isValid(input.userId)) return [];
+  const uid = new Types.ObjectId(input.userId);
+  const built = statusDrilldownFilter(input.statusKey, input.from, input.to);
+  if (!built) return [];
+  const reqFilter = buildReqFilterQuery(input.reqFilter);
+  const query: FilterQuery<Record<string, unknown>> = {
+    $and: [
+      reqFilter,
+      built.filter,
+      { $or: [{ assignedToRef: uid }, { reqEnteredByRef: uid }] },
+    ],
+  };
+  const rows = await RequirementModel.find(query)
+    .select(
+      "reqID reqStatus jobTitle clientCompany primaryTech createdAt updatedAt _perfSubmittedAt _perfInterviewedAt _perfProjectActiveAt _perfProjectInactiveAt",
+    )
+    .sort({ updatedAt: -1 })
+    .limit(200)
+    .lean();
+  const field = built.relevantField as PulseStatusDrilldownReq["relevantField"];
+  return rows.map((r) => {
+    const rec = r as Record<string, unknown>;
+    const relevantRaw = rec[field];
+    const relevantAt =
+      relevantRaw instanceof Date
+        ? relevantRaw.toISOString()
+        : typeof relevantRaw === "string"
+          ? relevantRaw
+          : "";
+    return {
+      reqID: String(rec.reqID || ""),
+      reqStatus: String(rec.reqStatus || ""),
+      jobTitle: String(rec.jobTitle || ""),
+      clientCompany: String(rec.clientCompany || ""),
+      primaryTech: rec.primaryTech ? String(rec.primaryTech) : undefined,
+      createdAt:
+        rec.createdAt instanceof Date
+          ? rec.createdAt.toISOString()
+          : String(rec.createdAt || ""),
+      updatedAt:
+        rec.updatedAt instanceof Date
+          ? rec.updatedAt.toISOString()
+          : String(rec.updatedAt || ""),
+      relevantAt,
+      relevantField: field,
+    };
+  });
 }

@@ -2,6 +2,7 @@ import express from "express";
 import passport from "passport";
 import {
   getEmployeePulse,
+  getStatusDrilldown,
   listPulseEmployees,
 } from "../controllers/employeePulseController";
 
@@ -17,5 +18,6 @@ const jwt = passport.authenticate("jwt", { session: false });
 
 employeePulseRoute.get("/", jwt, getEmployeePulse);
 employeePulseRoute.get("/employees", jwt, listPulseEmployees);
+employeePulseRoute.get("/status-drilldown", jwt, getStatusDrilldown);
 
 export { employeePulseRoute };

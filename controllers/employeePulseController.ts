@@ -15,6 +15,7 @@ import { Request, Response } from "express";
 import { UserModel } from "../models/userModel";
 import {
   buildEmployeePulseBundle,
+  buildStatusDrilldown,
   PulseBucket,
   PulseGroupBy,
   PulseMetric,
@@ -35,6 +36,7 @@ const ALLOWED_GROUP_BY: PulseGroupBy[] = [
 ];
 const ALLOWED_BUCKETS: PulseBucket[] = ["day", "week", "biweek", "month"];
 const ALLOWED_METRICS: PulseMetric[] = [
+  "positions",
   "submissions",
   "interviewsCompleted",
   "offers",
@@ -132,7 +134,7 @@ export const getEmployeePulse = async (req: Request, res: Response) => {
       : "day";
     const metric = ALLOWED_METRICS.includes(q.metric as PulseMetric)
       ? (q.metric as PulseMetric)
-      : "submissions";
+      : "positions";
 
     const reqFilter = pickReqFilter(q);
 
@@ -166,6 +168,49 @@ export const getEmployeePulse = async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error("employeePulse error:", error);
+    res
+      .status(500)
+      .json({ status: "failed", error: getErrorMessage(error) });
+  }
+};
+
+/**
+ * GET /employee-pulse/status-drilldown — list of reqs backing a single
+ * KPI card status number. Filters mirror the KPI aggregation exactly so
+ * counts + drilldown always agree.
+ */
+export const getStatusDrilldown = async (req: Request, res: Response) => {
+  try {
+    const q = req.query as Record<string, unknown>;
+    const userId = typeof q.userId === "string" ? q.userId : "";
+    const statusKey = typeof q.statusKey === "string" ? q.statusKey : "";
+    if (!userId || !statusKey) {
+      res
+        .status(400)
+        .json({ status: "failed", error: "userId + statusKey required" });
+      return;
+    }
+    const { from, to } = myDate(
+      typeof q.fromDate === "string" ? q.fromDate : undefined,
+      typeof q.toDate === "string" ? q.toDate : undefined,
+    );
+    const reqFilter = pickReqFilter(q);
+    const rows = await buildStatusDrilldown({
+      userId,
+      statusKey,
+      from,
+      to,
+      reqFilter,
+    });
+    res.status(200).json({
+      status: "success",
+      data: {
+        window: { from, to },
+        statusKey,
+        rows,
+      },
+    });
+  } catch (error) {
     res
       .status(500)
       .json({ status: "failed", error: getErrorMessage(error) });
