@@ -213,6 +213,7 @@ export const createInterview = async (req: Request, res: Response) => {
       reqID: interview.reqID,
       interviewStatus: interview.interviewStatus,
       intResult: interview.intResult,
+      interviewWith: interview.interviewWith,
       updatedBy: interview.updatedBy,
     });
 
@@ -279,6 +280,7 @@ export const updateInterview = async (req: Request, res: Response) => {
       reqID: data.reqID,
       interviewStatus: data.interviewStatus,
       intResult: data.intResult,
+      interviewWith: data.interviewWith,
       updatedBy: data.updatedBy,
     });
 

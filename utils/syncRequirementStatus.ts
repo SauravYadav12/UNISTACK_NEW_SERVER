@@ -27,13 +27,17 @@ interface SyncInput {
   reqID?: string | null;
   interviewStatus?: string | null;
   intResult?: string | null;
+  /** Who the interview was with — "Client", "Vendor", "Prime Vendor",
+   *  "IMP", etc. Only Client-facing rounds advance the requirement. */
+  interviewWith?: string | null;
   updatedBy?: string;
 }
 
 /**
  * When an interview progresses, automatically advance the linked requirement:
  *   - intResult === "Offer"          → reqStatus "Project Active"
- *   - interviewStatus === "Interview Completed" → reqStatus "Interviewed"
+ *   - interviewStatus === "Interview Completed" AND interviewWith === "Client"
+ *                                    → reqStatus "Interviewed"
  *
  * Rules:
  *   - Never overwrites terminal statuses (Project Active / Project Inactive /
@@ -41,19 +45,25 @@ interface SyncInput {
  *     once there it shouldn't be regressed to Interviewed by a later Completed.
  *   - "Interviewed" only upgrades from New Working / Submitted — not from
  *     Project Active / Project Inactive / Cancelled / Interviewed itself.
+ *   - Vendor / Prime Vendor / IMP screening calls DO NOT advance the req.
+ *     They're pre-qualification rounds, not real interviews — marking the
+ *     req as Interviewed on a vendor screening was a longstanding bug that
+ *     inflated interview counts and skewed the performance leaderboard.
  *   - Any error is caught and logged; the caller's main update must not fail.
  */
 export async function syncReqStatusFromInterview({
   reqID,
   interviewStatus,
   intResult,
+  interviewWith,
   updatedBy,
 }: SyncInput): Promise<void> {
   if (!reqID) return;
 
   const isOffer = intResult === "Offer";
-  const isCompleted = interviewStatus === "Interview Completed";
-  if (!isOffer && !isCompleted) return;
+  const isCompletedWithClient =
+    interviewStatus === "Interview Completed" && interviewWith === "Client";
+  if (!isOffer && !isCompletedWithClient) return;
 
   try {
     const requirement = await RequirementModel.findOne({ reqID });
@@ -68,7 +78,7 @@ export async function syncReqStatusFromInterview({
       if (!TERMINAL_STATUSES.has(current || "")) {
         next = "Project Active";
       }
-    } else if (isCompleted && PRE_INTERVIEWED_STATUSES.has(current || "")) {
+    } else if (isCompletedWithClient && PRE_INTERVIEWED_STATUSES.has(current || "")) {
       next = "Interviewed";
     }
 
