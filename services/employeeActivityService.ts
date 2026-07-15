@@ -745,7 +745,7 @@ async function buildProactivityData(
       clientCompany?: string;
       createdAt?: Date;
       reqEnteredByRef?: unknown;
-      mComment?: Array<{ username?: string; date?: Date }>;
+      mComment?: Array<{ username?: string; date?: Date | string }>;
     };
     if (!p.reqID || !p.createdAt) continue;
     const enteredAt = p.createdAt as Date;
@@ -758,9 +758,15 @@ async function buildProactivityData(
 
     const bump = (
       userId: string,
-      at: Date,
+      raw: Date | string | number | undefined,
       kind: "child" | "comment",
     ) => {
+      // Legacy `mComment[].date` rows can be plain strings — Mongoose
+      // doesn't coerce them retroactively. Normalise to Date here so
+      // downstream `toISOString()`/`getTime()` are always safe.
+      if (raw === undefined || raw === null) return;
+      const at = raw instanceof Date ? raw : new Date(raw);
+      if (isNaN(at.getTime())) return;
       const prev = perUser.get(userId);
       if (!prev || at < prev.at) {
         perUser.set(userId, { at, kind });
@@ -772,7 +778,7 @@ async function buildProactivityData(
     for (const c of cs) {
       const uid = c.assignedToRef ? String(c.assignedToRef) : "";
       if (!uid || !c.createdAt) continue;
-      bump(uid, c.createdAt as Date, "child");
+      bump(uid, c.createdAt as Date | string, "child");
     }
 
     // Comments — name-match to user roster.
@@ -783,7 +789,7 @@ async function buildProactivityData(
       if (!name || !d) continue;
       const u = userByName.get(name);
       if (!u) continue; // unresolvable → silently drop
-      bump(u.userId, d as Date, "comment");
+      bump(u.userId, d as Date | string, "comment");
     }
 
     const actors: PulseProactivityActor[] = [];
