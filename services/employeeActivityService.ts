@@ -163,7 +163,6 @@ export interface PulseTrend {
   series: PulseTrendSeries[];
   truncated: boolean;
   totalSeries: number;
-  perEmployeeOverlay?: Array<{ userId: string; name: string; data: number[] }>;
 }
 
 // ─── Proactivity Board types ───────────────────────────────────────
@@ -461,11 +460,28 @@ export async function buildEmployeePulseBundle(
           )
           .lean()
       : Promise.resolve([]),
-    // Trend query — respects requirement filter, no user scoping (chart
-    // works even with zero employees selected).
-    RequirementModel.find(reqFilter)
+    // Trend query — respects the requirement filter, no user scoping,
+    // AND window-scoped by "any activity in [from, to]". We only bucket
+    // reqs whose relevant timestamp falls in the window; loading
+    // outside-window reqs would be pure waste, especially at Today
+    // range on a multi-year collection.
+    RequirementModel.find({
+      $and: [
+        reqFilter,
+        {
+          $or: [
+            { createdAt: { $gte: from, $lte: to } },
+            { updatedAt: { $gte: from, $lte: to } },
+            { _perfSubmittedAt: { $gte: from, $lte: to } },
+            { _perfInterviewedAt: { $gte: from, $lte: to } },
+            { _perfProjectActiveAt: { $gte: from, $lte: to } },
+            { _perfProjectInactiveAt: { $gte: from, $lte: to } },
+          ],
+        },
+      ],
+    } as FilterQuery<Record<string, unknown>>)
       .select(
-        "reqID jobTitle primaryTech secondaryTech primaryTechStack clientCompany employementType taxType remote assignedToRef createdAt _perfSubmittedAt _perfInterviewedAt _perfProjectActiveAt",
+        "reqID jobTitle primaryTech secondaryTech primaryTechStack clientCompany employementType taxType remote assignedToRef createdAt updatedAt _perfSubmittedAt _perfInterviewedAt _perfProjectActiveAt _perfProjectInactiveAt",
       )
       .lean(),
   ]);
@@ -663,7 +679,6 @@ export async function buildEmployeePulseBundle(
     metric,
     from,
     to,
-    userIds: userIds.map(String),
   });
 
   return {
@@ -976,11 +991,10 @@ interface TrendArgs {
   metric: PulseMetric;
   from: Date;
   to: Date;
-  userIds: string[];
 }
 
 async function computeTrend(args: TrendArgs): Promise<PulseTrend> {
-  const { reqs, interviews, groupBy, bucket, metric, from, to, userIds, weightsMkt } = args;
+  const { reqs, interviews, groupBy, bucket, metric, from, to, weightsMkt } = args;
   const xAxis = buildBucketList(from, to, bucket);
 
   // Build reqID → raw group value map first.
@@ -1033,14 +1047,6 @@ async function computeTrend(args: TrendArgs): Promise<PulseTrend> {
     if (!seriesMap.has(group)) seriesMap.set(group, xAxis.map(() => 0));
     (seriesMap.get(group) as number[])[idx] += amount;
   };
-  const overlayMap = new Map<string, number[]>(); // userId → per-bucket count
-  const bumpOverlay = (userId: string, bucketISO: string, amount = 1) => {
-    const idx = xAxis.indexOf(bucketISO);
-    if (idx < 0) return;
-    if (!overlayMap.has(userId)) overlayMap.set(userId, xAxis.map(() => 0));
-    (overlayMap.get(userId) as number[])[idx] += amount;
-  };
-
   const w = (k: string, d = 0) =>
     Number.isFinite(weightsMkt[k]) ? weightsMkt[k] : d;
   const subWeight = w("SUBMISSION_WEIGHT", 2);
@@ -1060,13 +1066,7 @@ async function computeTrend(args: TrendArgs): Promise<PulseTrend> {
       if (isNaN(t.getTime()) || t < from || t > to) continue;
       const group = reqGroup.get(r.reqID || "");
       if (!group) continue;
-      const bucketISO = bucketStart(t, bucket);
-      bumpSeries(group, bucketISO, 1);
-      // Positions overlay = the marketer assigned to the req at creation
-      // time (parent reqs may have no assignedToRef at that instant, in
-      // which case there's nothing to attribute).
-      const uid = String(r.assignedToRef || "");
-      if (uid && userIds.includes(uid)) bumpOverlay(uid, bucketISO, 1);
+      bumpSeries(group, bucketStart(t, bucket), 1);
     }
   }
 
@@ -1078,11 +1078,8 @@ async function computeTrend(args: TrendArgs): Promise<PulseTrend> {
       if (t < from || t > to) continue;
       const group = reqGroup.get(r.reqID || "");
       if (!group) continue;
-      const bucketISO = bucketStart(t, bucket);
       const amount = metric === "score" ? subWeight : 1;
-      bumpSeries(group, bucketISO, amount);
-      const uid = String(r.assignedToRef || "");
-      if (uid && userIds.includes(uid)) bumpOverlay(uid, bucketISO, amount);
+      bumpSeries(group, bucketStart(t, bucket), amount);
     }
   }
 
@@ -1097,11 +1094,8 @@ async function computeTrend(args: TrendArgs): Promise<PulseTrend> {
       if (!req) continue;
       const group = reqGroup.get(iv.reqID || "");
       if (!group) continue;
-      const bucketISO = bucketStart(t, bucket);
       const amount = metric === "score" ? intWeight : 1;
-      bumpSeries(group, bucketISO, amount);
-      const uid = String(iv.marketingPersonRef || "");
-      if (uid && userIds.includes(uid)) bumpOverlay(uid, bucketISO, amount);
+      bumpSeries(group, bucketStart(t, bucket), amount);
     }
   }
 
@@ -1116,10 +1110,7 @@ async function computeTrend(args: TrendArgs): Promise<PulseTrend> {
       if (!req) continue;
       const group = reqGroup.get(iv.reqID || "");
       if (!group) continue;
-      const bucketISO = bucketStart(t, bucket);
-      bumpSeries(group, bucketISO, 1);
-      const uid = String(iv.marketingPersonRef || "");
-      if (uid && userIds.includes(uid)) bumpOverlay(uid, bucketISO, 1);
+      bumpSeries(group, bucketStart(t, bucket), 1);
     }
   }
 
@@ -1137,14 +1128,6 @@ async function computeTrend(args: TrendArgs): Promise<PulseTrend> {
     data: seriesMap.get(name) as number[],
   }));
 
-  const perEmployeeOverlay: PulseTrend["perEmployeeOverlay"] = userIds.length
-    ? userIds.map((uid) => ({
-        userId: uid,
-        name: uid, // controller replaces with real name
-        data: overlayMap.get(uid) || xAxis.map(() => 0),
-      }))
-    : undefined;
-
   return {
     groupBy,
     bucket,
@@ -1153,7 +1136,6 @@ async function computeTrend(args: TrendArgs): Promise<PulseTrend> {
     series,
     truncated,
     totalSeries: totalsByGroup.length,
-    perEmployeeOverlay,
   };
 }
 

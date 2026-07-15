@@ -27,9 +27,13 @@ const MODEL =
 /** Max raws sent to Claude per API call. Keeps token usage predictable. */
 const BATCH_SIZE = 60;
 
-/** Total wall-clock budget for the canonicalisation call. Once hit, we
- *  short-circuit and fall back to raw values so page loads stay snappy. */
-const RESOLVE_TIMEOUT_MS = 8000;
+/**
+ * In-process guard so we don't fire the Claude API more than once for
+ * the same (raw, groupType) pair even if two overlapping requests both
+ * see a cache miss. Cleared as soon as the API call completes and the
+ * cache is written.
+ */
+const inFlight = new Set<string>();
 
 export type CanonicalGroupType =
   | "jobTitle"
@@ -40,8 +44,16 @@ export type CanonicalGroupType =
 
 /**
  * Given a list of raw strings, return a Map keyed by the lower-cased +
- * trimmed raw → canonical form. Uses cache first, then AI for misses,
- * then updates cache.
+ * trimmed raw → canonical form.
+ *
+ * Cache-only on the request path — never blocks on Claude. Cache-miss
+ * raws are returned unchanged AND a background Claude call is kicked
+ * off (fire-and-forget) so the cache is warm for the next request.
+ *
+ * Trade-off: the first-ever request for a given title shows the raw
+ * string; the next request after ~2-5s shows the canonical form. Any
+ * request that returns unchanged raws will still render the chart
+ * correctly — variants just won't be merged for that one render.
  */
 export async function resolveTitles(
   raws: string[],
@@ -58,7 +70,7 @@ export async function resolveTitles(
 
   const list = Array.from(cleaned);
 
-  // ── 1. Cache lookup ──
+  // ── Cache lookup (blocking, indexed — fast). ──
   const cached = await JobTitleCanonicalModel.find({
     groupType,
     raw: { $in: list },
@@ -71,60 +83,64 @@ export async function resolveTitles(
     cachedSet.add(c.raw);
   }
 
+  // ── Cache miss: fill with raws + kick off background warm. ──
   const missing = list.filter((r) => !cachedSet.has(r));
-  if (missing.length === 0) return out;
+  for (const r of missing) out.set(r, r);
+  if (missing.length > 0) warmInBackground(missing, groupType);
+  return out;
+}
 
-  // ── 2. Claude for cache-misses ──
+/**
+ * Fires the Claude → cache pipeline out-of-band. Never awaited. Uses
+ * an in-process guard so overlapping requests don't stack duplicate
+ * API calls for the same raw+groupType.
+ */
+function warmInBackground(missing: string[], groupType: CanonicalGroupType): void {
   const apiKey = ENV_VARS.CLAUDE_API_KEY;
-  if (!apiKey) {
-    for (const r of missing) out.set(r, r);
-    return out;
-  }
+  if (!apiKey) return;
 
-  const timeoutFallback = new Promise<void>((resolve) =>
-    setTimeout(resolve, RESOLVE_TIMEOUT_MS),
-  );
-  let timedOut = false;
-  const worker = (async () => {
-    const client = new Anthropic({ apiKey });
-    const groups = chunk(missing, BATCH_SIZE);
-    for (const batch of groups) {
-      if (timedOut) return;
-      try {
-        const map = await canonicaliseBatch(client, batch, groupType);
-        const inserts: Array<{
-          updateOne: {
-            filter: { raw: string; groupType: string };
-            update: { $set: Record<string, string> };
-            upsert: true;
-          };
-        }> = [];
-        for (const [raw, canonical] of map.entries()) {
-          out.set(raw, canonical);
-          inserts.push({
+  const todo = missing.filter((r) => {
+    const key = `${groupType}::${r}`;
+    if (inFlight.has(key)) return false;
+    inFlight.add(key);
+    return true;
+  });
+  if (todo.length === 0) return;
+
+  // Detach: no await from any caller.
+  void (async () => {
+    try {
+      const client = new Anthropic({ apiKey });
+      const groups = chunk(todo, BATCH_SIZE);
+      for (const batch of groups) {
+        try {
+          const map = await canonicaliseBatch(client, batch, groupType);
+          if (map.size === 0) continue;
+          const inserts: Array<{
             updateOne: {
-              filter: { raw, groupType },
-              update: { $set: { raw, canonical, groupType } },
-              upsert: true,
-            },
-          });
-        }
-        if (inserts.length)
+              filter: { raw: string; groupType: string };
+              update: { $set: Record<string, string> };
+              upsert: true;
+            };
+          }> = [];
+          for (const [raw, canonical] of map.entries()) {
+            inserts.push({
+              updateOne: {
+                filter: { raw, groupType },
+                update: { $set: { raw, canonical, groupType } },
+                upsert: true,
+              },
+            });
+          }
           await JobTitleCanonicalModel.bulkWrite(inserts, { ordered: false });
-      } catch {
-        // Fall back to raws for this batch; don't cache the fallback.
-        for (const r of batch) if (!out.has(r)) out.set(r, r);
+        } catch {
+          // Swallow batch errors — next request will retry this batch.
+        }
       }
+    } finally {
+      for (const r of todo) inFlight.delete(`${groupType}::${r}`);
     }
   })();
-
-  await Promise.race([worker, timeoutFallback]);
-  timedOut = true;
-
-  // Fill any still-missing raws with their raw value so the caller
-  // always gets a mapping for every input.
-  for (const r of missing) if (!out.has(r)) out.set(r, r);
-  return out;
 }
 
 async function canonicaliseBatch(

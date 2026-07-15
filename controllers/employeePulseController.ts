@@ -148,17 +148,6 @@ export const getEmployeePulse = async (req: Request, res: Response) => {
       metric,
     });
 
-    // Resolve real names for the trend's per-employee overlay (the service
-    // returned uids as placeholders).
-    if (bundle.trend.perEmployeeOverlay?.length) {
-      const uidToName = new Map(
-        bundle.users.map((u) => [u.userId, u.name] as const),
-      );
-      for (const ov of bundle.trend.perEmployeeOverlay) {
-        ov.name = uidToName.get(ov.userId) || ov.userId;
-      }
-    }
-
     res.status(200).json({
       status: "success",
       data: {
