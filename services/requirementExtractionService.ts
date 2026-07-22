@@ -163,14 +163,35 @@ function buildRequirementExtractedSchema() {
     shape[key] = optionalStringArray;
   }
 
+  // Historically `.strict()` — but Claude occasionally hallucinates a
+  // sibling field name that mirrors an existing one (the classic case is
+  // "vendorAddress" mirroring the real "clientAddress"). Strict mode
+  // aborts the whole extraction over that one stray key, taking every
+  // legitimately-extracted field down with it. Switch to `.strip()`:
+  // unknown keys are silently dropped so the good data survives; we log
+  // them so we can still spot hallucinations that deserve fixing in the
+  // prompt / hint dictionary.
+  const known = new Set(Object.keys(shape));
   return z
     .object(shape as z.ZodRawShape)
-    .strict()
-    .transform((data) =>
-      Object.fromEntries(
-        Object.entries(data).filter(([, v]) => v !== undefined),
-      ),
-    );
+    .passthrough()
+    .transform((data) => {
+      const dropped: string[] = [];
+      const kept: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(data)) {
+        if (!known.has(k)) {
+          dropped.push(k);
+          continue;
+        }
+        if (v !== undefined) kept[k] = v;
+      }
+      if (dropped.length) {
+        console.warn(
+          `[requirementExtraction] dropped unknown keys from model output: ${dropped.join(", ")}`,
+        );
+      }
+      return kept;
+    });
 }
 
 export const requirementExtractedSchema = buildRequirementExtractedSchema();
