@@ -31,6 +31,7 @@ import {
   computeSupportMetrics,
   scoreMarketing,
   scoreSupport,
+  isScoredInterview,
   ReqForScoring,
   InterviewForScoring,
 } from "../utils/scoring";
@@ -532,7 +533,10 @@ export async function buildEmployeePulseBundle(
     );
     const clientIvIds = new Set(
       (interviews as unknown as InterviewForScoring[])
-        .filter((iv) => iv.interviewWith === "Client")
+        // Only scored interview types count toward Support's "was
+        // interviewed" flag — matches the scoring rule so Support and
+        // Marketing agree on what constitutes an interview.
+        .filter((iv) => isScoredInterview(iv))
         .map((iv) => iv.reqID || "")
         .filter(Boolean),
     );
@@ -1117,7 +1121,7 @@ async function computeTrend(args: TrendArgs): Promise<PulseTrend> {
 
   if (wantIntComp) {
     for (const iv of interviews) {
-      if (iv.interviewWith !== "Client") continue;
+      if (!isScoredInterview(iv)) continue;
       const at = iv._perfCompletedAt;
       if (!at) continue;
       const t = at as Date;
@@ -1133,7 +1137,7 @@ async function computeTrend(args: TrendArgs): Promise<PulseTrend> {
 
   if (wantOffers) {
     for (const iv of interviews) {
-      if (iv.interviewWith !== "Client") continue;
+      if (!isScoredInterview(iv)) continue;
       const at = iv._perfOfferAt;
       if (!at) continue;
       const t = at as Date;

@@ -30,6 +30,11 @@ interface SyncInput {
   /** Who the interview was with — "Client", "Vendor", "Prime Vendor",
    *  "IMP", etc. Only Client-facing rounds advance the requirement. */
   interviewWith?: string | null;
+  /** "Technical" / "Techno Managerial" / "Non Technical" / "Prep Call"
+   *  / "Test" / "Other". Only the first two advance the req — Test / Prep
+   *  / Non-Technical rounds are recorded but don't move the pipeline
+   *  (matches the scoring rule). */
+  interviewType?: string | null;
   updatedBy?: string;
 }
 
@@ -56,13 +61,22 @@ export async function syncReqStatusFromInterview({
   interviewStatus,
   intResult,
   interviewWith,
+  interviewType,
   updatedBy,
 }: SyncInput): Promise<void> {
   if (!reqID) return;
 
   const isOffer = intResult === "Offer";
+  // Auto-advance to "Interviewed" only when a real (Technical /
+  // Techno Managerial) client round is completed. Prep / Test / Non
+  // Technical / Other rounds are recorded but don't flip req status —
+  // matches the scoring rule that says they're weightless.
+  const isScoredType =
+    interviewType === "Technical" || interviewType === "Techno Managerial";
   const isCompletedWithClient =
-    interviewStatus === "Interview Completed" && interviewWith === "Client";
+    interviewStatus === "Interview Completed" &&
+    interviewWith === "Client" &&
+    isScoredType;
   if (!isOffer && !isCompletedWithClient) return;
 
   try {

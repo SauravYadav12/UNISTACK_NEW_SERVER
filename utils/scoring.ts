@@ -140,6 +140,9 @@ export interface InterviewForScoring {
   interviewStatus?: string;
   /** Only "Client" interviews count toward marketing performance. */
   interviewWith?: string;
+  /** Only "Technical" / "Techno Managerial" types earn score — Prep /
+   *  Test / Non Technical / Other rounds are recorded but weightless. */
+  interviewType?: string;
   /** Scheduled interview date — only used by the legacy fallback when a
    *  client interview is in "Interview Confirm" but the cron hasn't
    *  stamped `_perfStaleConfirmFiredAt` yet (e.g. pre-migration). */
@@ -164,6 +167,29 @@ const COMPLETED_STATUS = "Interview Completed";
 /** Only client-facing interviews feed the performance rollups. Vendor + IMP
  *  interviews are preparation, not the deliverable. */
 const CLIENT_INTERVIEW_WITH = "Client";
+
+/**
+ * Only real technical rounds count toward marketing scoring. Prep / test
+ * / non-technical / other calls are legit interview records — they just
+ * don't earn score.
+ */
+export const SCORED_INTERVIEW_TYPES = new Set([
+  "Technical",
+  "Techno Managerial",
+]);
+
+/**
+ * A client interview counts toward scoring only when its `interviewType`
+ * is in {@link SCORED_INTERVIEW_TYPES}. Missing / blank type is treated
+ * as unscored — matches "Prep Call" and "Test" semantically (weight zero).
+ */
+export function isScoredInterview(iv: {
+  interviewWith?: string;
+  interviewType?: string;
+}): boolean {
+  if (iv.interviewWith !== CLIENT_INTERVIEW_WITH) return false;
+  return SCORED_INTERVIEW_TYPES.has((iv.interviewType || "").trim());
+}
 
 /** Score a marketing user from their assigned requirements + interviews. */
 export function computeMarketingMetrics(args: {
@@ -238,7 +264,7 @@ export function computeMarketingMetrics(args: {
   const interviewsByReq = new Map<string, InterviewForScoring[]>();
   const orphans: InterviewForScoring[] = [];
   for (const iv of args.interviews) {
-    if (iv.interviewWith !== CLIENT_INTERVIEW_WITH) continue;
+    if (!isScoredInterview(iv)) continue;
     if (iv.reqID) {
       const arr = interviewsByReq.get(iv.reqID) || [];
       arr.push(iv);
@@ -320,7 +346,7 @@ export function computeMarketingMetrics(args: {
   let staleConfirmedInterviews = 0;
   const staleConfirmedContrib: ContributorItem[] = [];
   for (const iv of args.interviews) {
-    if (iv.interviewWith !== CLIENT_INTERVIEW_WITH) continue;
+    if (!isScoredInterview(iv)) continue;
     if (inWindow(iv._perfStaleConfirmFiredAt, from, to)) {
       staleConfirmedInterviews++;
       staleConfirmedContrib.push({

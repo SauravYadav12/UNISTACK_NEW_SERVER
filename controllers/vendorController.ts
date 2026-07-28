@@ -44,6 +44,7 @@ export const createInterview = async (req: Request, res: Response) => {
       interviewStatus: interview.interviewStatus,
       intResult: interview.intResult,
       interviewWith: interview.interviewWith,
+      interviewType: interview.interviewType,
       updatedBy: interview.updatedBy,
     });
     res.status(200).json({
@@ -76,6 +77,7 @@ export const updateInterview = async (req: Request, res: Response) => {
       interviewStatus: data.interviewStatus,
       intResult: data.intResult,
       interviewWith: data.interviewWith,
+      interviewType: data.interviewType,
       updatedBy: data.updatedBy,
     });
     res.status(200).json({

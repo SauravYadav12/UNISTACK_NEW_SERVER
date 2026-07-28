@@ -205,6 +205,7 @@ export const createInterview = async (req: Request, res: Response) => {
     // initial state.
     void stampInterviewMilestones(interview._id, {
       interviewWith: interview.interviewWith,
+      interviewType: interview.interviewType,
       interviewStatus: interview.interviewStatus,
       intResult: interview.intResult,
     });
@@ -214,6 +215,7 @@ export const createInterview = async (req: Request, res: Response) => {
       interviewStatus: interview.interviewStatus,
       intResult: interview.intResult,
       interviewWith: interview.interviewWith,
+      interviewType: interview.interviewType,
       updatedBy: interview.updatedBy,
     });
 
@@ -272,6 +274,7 @@ export const updateInterview = async (req: Request, res: Response) => {
     // is a no-op via the `$exists: false` guard in `stampInterviewMilestones`.
     void stampInterviewMilestones(data._id, {
       interviewWith: data.interviewWith,
+      interviewType: data.interviewType,
       interviewStatus: data.interviewStatus,
       intResult: data.intResult,
     });
@@ -281,6 +284,7 @@ export const updateInterview = async (req: Request, res: Response) => {
       interviewStatus: data.interviewStatus,
       intResult: data.intResult,
       interviewWith: data.interviewWith,
+      interviewType: data.interviewType,
       updatedBy: data.updatedBy,
     });
 

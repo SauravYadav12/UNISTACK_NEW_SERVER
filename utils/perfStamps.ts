@@ -100,22 +100,36 @@ export async function stampReqStatusMilestones(
 }
 
 /**
+ * Only these interview types earn marketing performance credit — Prep
+ * Calls, Tests, Non-Technical rounds, and Other are recorded but never
+ * touch the scoring stamps. Kept in sync with `SCORED_INTERVIEW_TYPES`
+ * in `utils/scoring.ts` (single source of truth would be nicer, but
+ * this file is used both at cron time and inside migrations that can't
+ * pull `scoring.ts`).
+ */
+const SCORED_INTERVIEW_TYPES = new Set(["Technical", "Techno Managerial"]);
+
+/**
  * Stamp the interview-event milestones implied by `interviewStatus` /
- * `intResult`. Only client interviews matter for marketing scoring —
- * vendor / IMP prep rounds are skipped. "Interview Completed" implies
- * the interview was Confirmed at some point earlier in its lifecycle, so
- * we also forward-fill `_perfConfirmedAt` if it's still null.
+ * `intResult`. Only client interviews of a scored type
+ * ({@link SCORED_INTERVIEW_TYPES}) matter for marketing scoring — vendor
+ * / IMP rounds and prep / test / non-technical calls are skipped.
+ * "Interview Completed" implies the interview was Confirmed at some
+ * point earlier in its lifecycle, so we also forward-fill
+ * `_perfConfirmedAt` if it's still null.
  */
 export async function stampInterviewMilestones(
   interviewId: mongoose.Types.ObjectId | string,
   args: {
     interviewWith?: string;
+    interviewType?: string;
     interviewStatus?: string;
     intResult?: string;
   },
   now: Date = new Date(),
 ): Promise<void> {
   if (args.interviewWith !== "Client") return;
+  if (!SCORED_INTERVIEW_TYPES.has((args.interviewType || "").trim())) return;
 
   if (
     args.interviewStatus === "Interview Confirm" ||
