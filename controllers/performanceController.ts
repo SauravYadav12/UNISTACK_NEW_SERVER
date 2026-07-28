@@ -221,9 +221,11 @@ export const getSupportLeaderboard = async (req: Request, res: Response) => {
     const clientInterviews = await InterviewModel.find({
       reqID: { $in: reqIDsInWindow },
       interviewWith: "Client",
-      // Support's "was interviewed" credit only fires for scored types —
-      // matches the marketing scoring rule so the two sides agree.
-      interviewType: { $in: ["Technical", "Techno Managerial"] },
+      // Support's "was interviewed" credit is skipped only for the
+      // three explicitly-unscored types. Legacy interviews with a
+      // blank type still count — matches the marketing scoring rule so
+      // the two sides agree.
+      interviewType: { $nin: ["Test", "Prep Call", "Non Technical"] },
       interviewStatus: { $in: ["Interview Confirm", "Interview Completed"] },
     })
       .select("reqID")

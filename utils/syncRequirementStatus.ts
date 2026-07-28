@@ -67,16 +67,17 @@ export async function syncReqStatusFromInterview({
   if (!reqID) return;
 
   const isOffer = intResult === "Offer";
-  // Auto-advance to "Interviewed" only when a real (Technical /
-  // Techno Managerial) client round is completed. Prep / Test / Non
-  // Technical / Other rounds are recorded but don't flip req status —
-  // matches the scoring rule that says they're weightless.
-  const isScoredType =
-    interviewType === "Technical" || interviewType === "Techno Managerial";
+  // Auto-advance to "Interviewed" only when a client round is
+  // completed and it's not one of the explicitly-weightless types.
+  // Legacy interviews with a blank type still advance the req.
+  const isUnscoredType =
+    interviewType === "Test" ||
+    interviewType === "Prep Call" ||
+    interviewType === "Non Technical";
   const isCompletedWithClient =
     interviewStatus === "Interview Completed" &&
     interviewWith === "Client" &&
-    isScoredType;
+    !isUnscoredType;
   if (!isOffer && !isCompletedWithClient) return;
 
   try {

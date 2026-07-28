@@ -100,14 +100,17 @@ export async function stampReqStatusMilestones(
 }
 
 /**
- * Only these interview types earn marketing performance credit — Prep
- * Calls, Tests, Non-Technical rounds, and Other are recorded but never
- * touch the scoring stamps. Kept in sync with `SCORED_INTERVIEW_TYPES`
- * in `utils/scoring.ts` (single source of truth would be nicer, but
- * this file is used both at cron time and inside migrations that can't
- * pull `scoring.ts`).
+ * Interview types that must NOT earn marketing performance credit —
+ * Prep Calls, Tests, and Non-Technical rounds are recorded but never
+ * touch the scoring stamps. Everything else (Technical, Techno
+ * Managerial, Other, blank/legacy) gets stamped normally. Kept in sync
+ * with `UNSCORED_INTERVIEW_TYPES` in `utils/scoring.ts`.
  */
-const SCORED_INTERVIEW_TYPES = new Set(["Technical", "Techno Managerial"]);
+const UNSCORED_INTERVIEW_TYPES = new Set([
+  "Test",
+  "Prep Call",
+  "Non Technical",
+]);
 
 /**
  * Stamp the interview-event milestones implied by `interviewStatus` /
@@ -129,7 +132,7 @@ export async function stampInterviewMilestones(
   now: Date = new Date(),
 ): Promise<void> {
   if (args.interviewWith !== "Client") return;
-  if (!SCORED_INTERVIEW_TYPES.has((args.interviewType || "").trim())) return;
+  if (UNSCORED_INTERVIEW_TYPES.has((args.interviewType || "").trim())) return;
 
   if (
     args.interviewStatus === "Interview Confirm" ||

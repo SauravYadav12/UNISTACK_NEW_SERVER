@@ -153,7 +153,7 @@ async function runTick() {
   const staleConfIvs = await InterviewModel.find({
     interviewStatus: "Interview Confirm",
     interviewWith: "Client",
-    interviewType: { $in: ["Technical", "Techno Managerial"] },
+    interviewType: { $nin: ["Test", "Prep Call", "Non Technical"] },
     _perfConfirmedAt: { $lt: staleConfCutoff },
     marketingPersonRef: { $exists: true },
   } as Record<string, unknown>)
@@ -266,7 +266,7 @@ async function runTick() {
   const staleConfFireIvs = await InterviewModel.find({
     interviewStatus: "Interview Confirm",
     interviewWith: "Client",
-    interviewType: { $in: ["Technical", "Techno Managerial"] },
+    interviewType: { $nin: ["Test", "Prep Call", "Non Technical"] },
     _perfConfirmedAt: { $lt: staleConfFireCutoff },
     _perfStaleConfirmFiredAt: { $exists: false },
   } as Record<string, unknown>)

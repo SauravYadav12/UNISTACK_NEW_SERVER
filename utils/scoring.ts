@@ -169,26 +169,33 @@ const COMPLETED_STATUS = "Interview Completed";
 const CLIENT_INTERVIEW_WITH = "Client";
 
 /**
- * Only real technical rounds count toward marketing scoring. Prep / test
- * / non-technical / other calls are legit interview records — they just
- * don't earn score.
+ * Interview types that DON'T earn marketing score. Everything else
+ * counts — including legacy rows with a blank `interviewType`, so we
+ * don't retroactively wipe pre-field-required scoring.
+ *
+ * Semantics: "Prep Call" is a walkthrough before the real round, "Test"
+ * is a take-home / online assessment, "Non Technical" is HR/culture-fit
+ * chatter — none of these are real hiring-signal interviews, so they're
+ * recorded but weightless.
  */
-export const SCORED_INTERVIEW_TYPES = new Set([
-  "Technical",
-  "Techno Managerial",
+export const UNSCORED_INTERVIEW_TYPES = new Set([
+  "Test",
+  "Prep Call",
+  "Non Technical",
 ]);
 
 /**
- * A client interview counts toward scoring only when its `interviewType`
- * is in {@link SCORED_INTERVIEW_TYPES}. Missing / blank type is treated
- * as unscored — matches "Prep Call" and "Test" semantically (weight zero).
+ * A client interview counts toward scoring unless its `interviewType`
+ * is in {@link UNSCORED_INTERVIEW_TYPES}. Non-client rounds (Vendor /
+ * IMP / etc.) never count. Missing / blank type still counts — see the
+ * comment on `UNSCORED_INTERVIEW_TYPES` for why.
  */
 export function isScoredInterview(iv: {
   interviewWith?: string;
   interviewType?: string;
 }): boolean {
   if (iv.interviewWith !== CLIENT_INTERVIEW_WITH) return false;
-  return SCORED_INTERVIEW_TYPES.has((iv.interviewType || "").trim());
+  return !UNSCORED_INTERVIEW_TYPES.has((iv.interviewType || "").trim());
 }
 
 /** Score a marketing user from their assigned requirements + interviews. */
