@@ -319,8 +319,13 @@ export const createLeave = async (req: Request, res: Response) => {
     if (!Array.isArray(req.body.splitBreakdown) && req.body.leaveType) {
       try {
         const days = requestedDays(req.body);
-        const monthNum = moment(req.body.startDate, "YYYY/MM/DD").month() + 1;
-        const yearNum = moment(req.body.startDate, "YYYY/MM/DD").year();
+        // Anchor on END-month so a leave that spans a month boundary
+        // gets the benefit of the second month's accrual in its paid
+        // pool. Example: Jul 30 – Aug 3 with 0.5 left in July + 1
+        // Aug accrual → 1.5 paid, rest unpaid.
+        const anchor = req.body.endDate || req.body.startDate;
+        const monthNum = moment(anchor, "YYYY/MM/DD").month() + 1;
+        const yearNum = moment(anchor, "YYYY/MM/DD").year();
         const { split } = await computeLeaveSplit({
           userId: user._id.toString(),
           leaveTypeId: req.body.leaveType,
@@ -512,8 +517,10 @@ export const updateLeave = async (req: Request, res: Response) => {
       if (merged.leaveType) {
         try {
           const days = requestedDays(merged);
-          const monthNum = moment(merged.startDate, "YYYY/MM/DD").month() + 1;
-          const yearNum = moment(merged.startDate, "YYYY/MM/DD").year();
+          // Anchor on END-month (see createLeave for the rationale).
+          const anchor = merged.endDate || merged.startDate;
+          const monthNum = moment(anchor, "YYYY/MM/DD").month() + 1;
+          const yearNum = moment(anchor, "YYYY/MM/DD").year();
           const { split } = await computeLeaveSplit({
             userId: existingLeave.userRef,
             leaveTypeId: merged.leaveType as unknown as string,

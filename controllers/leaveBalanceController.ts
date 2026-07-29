@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { Types } from "mongoose";
 import { UserDoc } from "../interface";
 import {
   listBalancesForUser,
@@ -6,10 +7,56 @@ import {
   setAllocation,
   resetBalancesForYear,
   computeMonthlyAvailable,
+  computeRemainingThisMonth,
   effectiveMonthlyQuota,
   seedBalancesForUser,
 } from "../services/leaveBalanceService";
 import { LeaveTypeDoc } from "../models/leaveTypeModel";
+import { LeaveModel, LeaveStatus } from "../models/leaveModel";
+
+/**
+ * Build a map keyed by `${userId}:${leaveTypeId}` → days used in the
+ * given calendar month, summed across every splitBreakdown row from
+ * approved leaves whose START DATE falls in the month. Used to compute
+ * the "remaining this month" display.
+ */
+async function buildUsedThisMonthMap(
+  userIds: Types.ObjectId[],
+  year: number,
+  month: number,
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (userIds.length === 0) return out;
+  const start = new Date(year, month - 1, 1);
+  const end = new Date(year, month, 1);
+  const leaves = await LeaveModel.find({
+    userRef: { $in: userIds },
+    status: LeaveStatus.Approved,
+    startDate: { $gte: start, $lt: end },
+  } as Record<string, unknown>)
+    .select("userRef leaveType splitBreakdown")
+    .lean();
+  for (const lv of leaves as unknown as Array<{
+    userRef: Types.ObjectId;
+    leaveType?: Types.ObjectId;
+    splitBreakdown?: Array<{ leaveType: Types.ObjectId; days: number }>;
+  }>) {
+    const uid = String(lv.userRef);
+    // Prefer splitBreakdown; fall back to the parent leaveType if a
+    // legacy row didn't get one (whole thing lands on that type).
+    const rows = Array.isArray(lv.splitBreakdown) && lv.splitBreakdown.length
+      ? lv.splitBreakdown
+      : lv.leaveType
+        ? [{ leaveType: lv.leaveType, days: 0 }]
+        : [];
+    for (const row of rows) {
+      if (!row.leaveType || typeof row.days !== "number") continue;
+      const key = `${uid}:${String(row.leaveType)}`;
+      out.set(key, (out.get(key) || 0) + row.days);
+    }
+  }
+  return out;
+}
 
 function yearOf(req: Request) {
   return Number(req.params.year || req.query.year || new Date().getFullYear());
@@ -32,15 +79,36 @@ function str(v: unknown): string {
 // off that. We also pass through the row's own `monthlyQuota` override
 // AND `leaveStartMonth` so probationary employees correctly show 0
 // available before their leave-start month.
-function withMonthlyAvailable<
+async function withMonthlyAvailable<
   T extends {
     leaveType: unknown;
+    user?: unknown;
+    userRef?: unknown;
     allocated: number;
     used: number;
     monthlyQuota?: number | null;
     leaveStartMonth?: number | null;
   }
->(rows: T[], month: number) {
+>(rows: T[], year: number, month: number) {
+  // Collect the userIds present in the listing so we can build the
+  // "used this month" aggregate with one query instead of one per row.
+  const userIds = Array.from(
+    new Set(
+      rows
+        .map((r) => r.user ?? r.userRef)
+        .filter((v): v is Types.ObjectId | string => !!v)
+        .map((v) =>
+          typeof v === "string"
+            ? Types.ObjectId.isValid(v)
+              ? new Types.ObjectId(v)
+              : null
+            : (v as Types.ObjectId),
+        )
+        .filter((v): v is Types.ObjectId => !!v),
+    ),
+  );
+  const usedThisMonthMap = await buildUsedThisMonthMap(userIds, year, month);
+
   return rows.map((b) => {
     const t = b.leaveType as LeaveTypeDoc | null | undefined;
     const monthlyAvailable = t
@@ -70,7 +138,36 @@ function withMonthlyAvailable<
           monthlyQuota: b.monthlyQuota,
         })
       : null;
-    return { ...b, monthlyAvailable, effectiveMonthlyQuota: effective };
+    // "Remaining THIS month" — the fresh monthly slice net of what the
+    // user has already burned in the current calendar month. This is
+    // the number the UI shows as "Available this month"; the older
+    // cumulative `monthlyAvailable` stays around because the paid/
+    // unpaid split logic reads it.
+    const uid = String(b.user ?? b.userRef ?? "");
+    const typeId = t
+      ? String((t as unknown as { _id: unknown })._id ?? "")
+      : "";
+    const key = uid && typeId ? `${uid}:${typeId}` : "";
+    const usedThisMonth = key ? usedThisMonthMap.get(key) || 0 : 0;
+    const remainingThisMonth = t
+      ? computeRemainingThisMonth(
+          t,
+          {
+            allocated: b.allocated,
+            used: b.used,
+            monthlyQuota: b.monthlyQuota,
+          },
+          usedThisMonth,
+        )
+      : Math.max(b.allocated - b.used, 0);
+    return {
+      ...b,
+      monthlyAvailable,
+      remainingThisMonth,
+      usedThisMonth,
+      yearlyRemaining: Math.max(b.allocated - b.used, 0),
+      effectiveMonthlyQuota: effective,
+    };
   });
 }
 
@@ -80,7 +177,7 @@ export const getMyBalances = async (req: Request, res: Response) => {
     const year = yearOf(req);
     const month = monthOf(req);
     const balances = await listBalancesForUser(user._id, year);
-    res.status(200).json({ data: withMonthlyAvailable(balances, month) });
+    res.status(200).json({ data: await withMonthlyAvailable(balances, year, month) });
   } catch (error) {
     res.status(500).json({ error });
   }
@@ -92,7 +189,7 @@ export const getUserBalances = async (req: Request, res: Response) => {
     const year = yearOf(req);
     const month = monthOf(req);
     const balances = await listBalancesForUser(userId, year);
-    res.status(200).json({ data: withMonthlyAvailable(balances, month) });
+    res.status(200).json({ data: await withMonthlyAvailable(balances, year, month) });
   } catch (error) {
     res.status(500).json({ error });
   }
@@ -108,7 +205,7 @@ export const getYearBalances = async (req: Request, res: Response) => {
     // line per cell. Previously this endpoint returned the raw rows and
     // the cells silently dropped the monthly line because the field was
     // missing.
-    res.status(200).json({ data: withMonthlyAvailable(balances, month) });
+    res.status(200).json({ data: await withMonthlyAvailable(balances, year, month) });
   } catch (error) {
     res.status(500).json({ error });
   }

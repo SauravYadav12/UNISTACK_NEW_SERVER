@@ -137,6 +137,42 @@ export function computeMonthlyAvailable(
 }
 
 /**
+ * "This month only" remaining accrual for the current calendar month.
+ *
+ * Unlike {@link computeMonthlyAvailable} — which surfaces the *paid pool*
+ * (cumulative accrual − used, capped at yearly) — this helper surfaces
+ * only the fresh monthly slice that hasn't been consumed yet in the
+ * current month. It's what the UI shows as "Available this month" so
+ * the employee/admin sees the accurate current-month figure instead of
+ * the confusing carry-forward stack.
+ *
+ * Formula (for monthly-capped types):
+ *   remaining = max(0, effectiveQuota − usedThisMonth)
+ *
+ * Types with no monthly cap (UL / uncapped ML) return the same
+ * `allocated − used` as `computeMonthlyAvailable`; nothing to slice.
+ */
+export function computeRemainingThisMonth(
+  type: Pick<LeaveTypeDoc, "monthlyQuota" | "isUnpaidBucket">,
+  balance:
+    | {
+        allocated: number;
+        used: number;
+        monthlyQuota?: number | null;
+      }
+    | null,
+  usedThisMonth: number,
+): number {
+  const allocated = balance?.allocated ?? 0;
+  const used = balance?.used ?? 0;
+  if (type.isUnpaidBucket) return Math.max(allocated - used, 0);
+  const effective =
+    balance?.monthlyQuota != null ? balance.monthlyQuota : type.monthlyQuota;
+  if (effective == null) return Math.max(allocated - used, 0);
+  return Math.max(effective - usedThisMonth, 0);
+}
+
+/**
  * Pure helper that returns the same effective monthly quota
  * `computeMonthlyAvailable` uses internally. Exported so the controller
  * can surface it on the listing response (so the admin UI shows what
