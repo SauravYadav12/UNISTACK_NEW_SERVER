@@ -19,6 +19,7 @@ import RequirementLogModel from "../models/requirement.log.model";
 import { ArchiveRequirement } from "../db/archiveInstance";
 import { emitNotification } from "../services/notificationService";
 import { UserDoc } from "../models/userModel";
+import { UserRole } from "../enums/UserEnum";
 import {
   stampReqStatusMilestones,
   clearReqUnworkedPenalty,
@@ -390,6 +391,21 @@ export const deleteRequirement = async (req: Request, res: Response) => {
       res.status(404).json({
         status: "failed",
         message: "RequirementModel not found",
+      });
+      return;
+    }
+    // Child records (rows with a parentReqID) are super-admin-only to
+    // delete. Marketing / support / admin can still remove parent reqs
+    // and use the Assign drawer to unassign marketers themselves — but
+    // a hard delete of an existing child row is destructive enough (it
+    // wipes attribution history) to warrant the tightest gate.
+    const actorRoles = (req.user as UserDoc | undefined)?.role || [];
+    const isSuperAdmin = actorRoles.includes(UserRole.SuperAdmin);
+    if (target.parentReqID && !isSuperAdmin) {
+      res.status(403).json({
+        status: "failed",
+        message:
+          "Only super-admin can delete a child requirement. Reach out to an admin if this needs removing.",
       });
       return;
     }
@@ -929,6 +945,18 @@ export const assignMarketers = async (req: Request, res: Response) => {
 export const unassignMarketer = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    // Deleting a marketer assignment IS deleting a child requirement
+    // row — same destructive semantics as `deleteRequirement`. Only
+    // super-admin from here on out.
+    const actorRoles = (req.user as UserDoc | undefined)?.role || [];
+    if (!actorRoles.includes(UserRole.SuperAdmin)) {
+      res.status(403).json({
+        status: "failed",
+        message:
+          "Only super-admin can remove a marketer assignment. Reach out to an admin if this needs removing.",
+      });
+      return;
+    }
     const child = await RequirementModel.findById(id);
     if (!child) {
       res.status(404).json({ status: "failed", message: "Assignment not found" });
