@@ -13,7 +13,8 @@
     "migrate:reset-unworked-penalty": "ts-node scripts/migrations/2026-05-16-reset-unworked-penalty-for-worked-reqs.ts",
     "migrate:dedupe-notifications": "ts-node scripts/migrations/2026-05-18-dedupe-existing-notifications.ts",
     "migrate:cleanup-stale-confirm": "ts-node scripts/migrations/2026-05-22-cleanup-stale-confirm-penalty.ts",
-    "migrate:sync-leave-type-name": "ts-node scripts/migrations/2026-05-23-sync-leave-type-name.ts"
+    "migrate:sync-leave-type-name": "ts-node scripts/migrations/2026-05-23-sync-leave-type-name.ts",
+    "register:quo-webhooks": "ts-node scripts/register-quo-webhooks.ts"
   },
   "author": "",
   "license": "ISC",

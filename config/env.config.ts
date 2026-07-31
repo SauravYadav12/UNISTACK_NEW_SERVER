@@ -83,6 +83,16 @@ const ENV_VARS = {
   CLAUDE_MODEL: process.env.CLAUDE_MODEL,
   JSEARCH_RAPIDAPI_KEY: process.env.JSEARCH_RAPIDAPI_KEY,
   JSEARCH_RAPIDAPI_HOST: process.env.JSEARCH_RAPIDAPI_HOST,
+
+  // Quo (OpenPhone) telephony integration. QUO_API_KEY is sent as the
+  // raw `Authorization` header (no Bearer prefix) per Quo's docs.
+  // QUO_WEBHOOK_SECRET is a random 32-byte hex value that we place into
+  // the webhook URL we register with Quo (`/webhooks/quo/<secret>/<kind>`)
+  // and check on inbound webhook requests as our gate — Quo's docs don't
+  // clearly document an HMAC signature header, so the URL secret is the
+  // v1 defense.
+  QUO_API_KEY: process.env.QUO_API_KEY,
+  QUO_WEBHOOK_SECRET: process.env.QUO_WEBHOOK_SECRET,
 };
 
 logMissingEnvVars(ENV_VARS, "Missing environment variables in .env");

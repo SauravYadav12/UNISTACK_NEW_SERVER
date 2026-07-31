@@ -52,6 +52,8 @@ import { myDocumentsRoute } from "./routes/myDocumentsRoute";
 import { form16Route } from "./routes/form16Route";
 import { chessLeadRoute } from "./routes/chessLeadRoute";
 import { employeePulseRoute } from "./routes/employeePulseRoute";
+import { quoRoute } from "./routes/quoRoute";
+import { quoWebhookRoute } from "./routes/quoWebhookRoute";
 import { initInvoiceDueScheduler } from "./services/invoiceDueScheduler";
 import { initLeaveBalanceSystem } from "./services/leaveBalanceScheduler";
 import { initPerformanceWarningScheduler } from "./services/performanceWarningScheduler";
@@ -139,6 +141,8 @@ app.use("/my-documents", myDocumentsRoute);
 app.use("/form16", form16Route);
 app.use("/chess-leads", chessLeadRoute);
 app.use("/employee-pulse", employeePulseRoute);
+app.use("/quo", quoRoute);
+app.use("/webhooks/quo", quoWebhookRoute);
 
 // Surface a clear boot-time warning if the Job Boards feature is wired
 // up but the upstream key is missing. Without this, the first search
