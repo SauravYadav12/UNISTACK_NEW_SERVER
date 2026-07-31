@@ -13,6 +13,7 @@ import {
   searchRequirementByReqID,
   getPipelineCounts,
   updateRequirementStar,
+  propagateRequirementToChildren,
 } from "../controllers/requirementController";
 const requirementRoute = express.Router();
 import passport from "passport";
@@ -39,6 +40,15 @@ requirementRoute.patch(
   "/update-requirement/:id",
   passport.authenticate("jwt", { session: false }),
   updateRequirement
+);
+
+// Propagate the just-saved parent diff onto some / all of its
+// children. Client only hits this after a parent update succeeds
+// AND the user confirms via the two-step popup.
+requirementRoute.post(
+  "/:id/propagate-to-children",
+  passport.authenticate("jwt", { session: false }),
+  propagateRequirementToChildren
 );
 
 // Star colour cycle on parent rows — lightweight, no audit log entry,

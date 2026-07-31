@@ -378,6 +378,135 @@ export const updateRequirement = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Propagate a set of parent-field changes onto selected children.
+ *
+ * Body: { childIds: string[] | 'all', changes: Record<string, unknown> }
+ *   • `changes`  — the surgical field-level diff the client already
+ *                  applied to the parent. We intersect with
+ *                  PARENT_OWNED_FIELDS so a stray marketing-owned
+ *                  key can never leak into a child update.
+ *   • `childIds` — either an array of the child _ids to update, or
+ *                  the string 'all' to hit every child of this parent.
+ *
+ * Emits exactly ONE summary log entry on the parent — no per-child
+ * entries — as chosen by the product decision. Actor + timestamp
+ * are recorded, plus the list of child reqIDs that got the update
+ * and the set of fields propagated.
+ */
+export const propagateRequirementToChildren = async (
+  req: Request,
+  res: Response,
+) => {
+  try {
+    const parentId = String(req.params.id || "");
+    if (!parentId) {
+      res.status(400).json({ status: "failed", error: "Missing parent id" });
+      return;
+    }
+    const { childIds, changes } = req.body as {
+      childIds?: string[] | "all";
+      changes?: Record<string, unknown>;
+    };
+    if (!changes || typeof changes !== "object" || Array.isArray(changes)) {
+      res.status(400).json({ status: "failed", error: "Missing changes payload" });
+      return;
+    }
+
+    // Whitelist to parent-owned fields only — safety net so a bad
+    // client payload can't overwrite child-owned data
+    // (assignedToRef / mComment / reqStatus / starColor / etc).
+    const parentOwned = new Set<string>(PARENT_OWNED_FIELDS as unknown as string[]);
+    const safeChanges: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(changes)) {
+      if (parentOwned.has(k)) safeChanges[k] = v;
+    }
+    if (Object.keys(safeChanges).length === 0) {
+      res
+        .status(200)
+        .json({ status: "success", data: { updatedCount: 0, updatedReqIDs: [] } });
+      return;
+    }
+
+    const parent = await RequirementModel.findById(parentId).lean();
+    if (!parent) {
+      res.status(404).json({ status: "failed", error: "Parent not found" });
+      return;
+    }
+
+    // Load ALL children of this parent so we can (a) validate
+    // supplied childIds actually belong to this parent, and (b)
+    // resolve reqIDs for the summary log.
+    const allChildren = await RequirementModel.find({
+      parentReqID: parent.reqID,
+    })
+      .select("_id reqID assignedTo appliedFor")
+      .lean();
+    const childById = new Map(
+      allChildren.map((c) => [String(c._id), c] as const),
+    );
+
+    let targetChildIds: string[];
+    if (childIds === "all") {
+      targetChildIds = allChildren.map((c) => String(c._id));
+    } else if (Array.isArray(childIds)) {
+      // Filter to the intersection so a stray/foreign id is silently
+      // dropped rather than crashing the whole batch.
+      targetChildIds = childIds.filter((id) => childById.has(String(id)));
+    } else {
+      res.status(400).json({ status: "failed", error: "childIds must be an array or 'all'" });
+      return;
+    }
+    if (targetChildIds.length === 0) {
+      res
+        .status(200)
+        .json({ status: "success", data: { updatedCount: 0, updatedReqIDs: [] } });
+      return;
+    }
+
+    // Apply the safe changes to every target child in one batch.
+    await RequirementModel.updateMany(
+      { _id: { $in: targetChildIds } },
+      { $set: safeChanges },
+    );
+
+    const updatedReqIDs = targetChildIds
+      .map((id) => childById.get(id)?.reqID)
+      .filter((v): v is string => !!v);
+
+    // One summary log entry on the parent — per product decision.
+    // Children get no separate log. `newData` carries both the diff
+    // and the list of children touched, so the existing
+    // RequirementLogs viewer surfaces it without a UI change.
+    const actor = req.user as UserDoc | undefined;
+    await RequirementLogModel.create({
+      requirementRef: parent._id,
+      operation: "update",
+      userName:
+        `${actor?.firstName || ""} ${actor?.lastName || ""}`.trim() ||
+        actor?.email ||
+        "unknown",
+      userRef: actor?._id,
+      newData: {
+        propagatedFrom: "parent",
+        propagatedTo: updatedReqIDs,
+        childCount: updatedReqIDs.length,
+        changes: safeChanges,
+      },
+    });
+
+    res.status(200).json({
+      status: "success",
+      data: {
+        updatedCount: updatedReqIDs.length,
+        updatedReqIDs,
+      },
+    });
+  } catch (error) {
+    res.status(400).json({ status: "failed", error: (error as Error).message });
+  }
+};
+
 export const deleteRequirement = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;

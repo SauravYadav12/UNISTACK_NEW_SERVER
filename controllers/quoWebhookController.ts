@@ -105,17 +105,34 @@ export const receiveQuoWebhook = async (req: Request, res: Response) => {
         break;
       }
       case "call.recording.completed": {
+        // TEMPORARY: log the raw payload so we can see the exact
+        // field names Quo uses. Once verified, this can drop back to
+        // silent parsing.
+        console.log(
+          "[quo webhook] call.recording.completed raw payload:",
+          JSON.stringify(event.data, null, 2),
+        );
         const data = unwrap<{
           callId?: string;
           id?: string;
-          recordings?: Array<{ id: string }>;
+          url?: string;
+          recordings?: Array<{ id: string; url?: string }>;
         }>(event);
+        // Support both shapes: `{callId, recordings: [{id}]}` AND
+        // `{id, callId, url}` (single recording object).
         const callId = data?.callId || data?.id;
-        const recIds =
-          data?.recordings?.map((r) => r.id) ??
-          (data?.id ? [data.id] : []);
+        let recIds: string[] = [];
+        if (data?.recordings?.length) {
+          recIds = data.recordings.map((r) => r.id);
+        } else if (data?.id) {
+          recIds = [data.id];
+        }
         if (callId && recIds.length) {
           await ingestRecordingCompleted(callId, recIds);
+        } else {
+          console.warn(
+            "[quo webhook] recording.completed missing callId/recIds — check payload above",
+          );
         }
         break;
       }
