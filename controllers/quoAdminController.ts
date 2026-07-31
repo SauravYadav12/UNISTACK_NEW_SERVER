@@ -322,19 +322,43 @@ export const listQuoVoicemails = async (req: Request, res: Response) => {
  * per-conversation into one reverse-chronological list. Powers the
  * right-pane timeline. SMS is rolled up by conversationId so each
  * counterparty thread renders as ONE card, not one card per message.
+ *
+ * `direction` filter semantics:
+ *   • incoming  → calls + messages where direction='incoming' + all voicemails
+ *                 (voicemails are always someone leaving one for us — i.e.
+ *                 inherently incoming).
+ *   • outgoing  → calls + messages where direction='outgoing' + zero
+ *                 voicemails (they're never outgoing).
+ *   • undefined → everything.
  */
 export const listQuoActivity = async (req: Request, res: Response) => {
   try {
     const q = buildTimelineQuery(req);
     const { limit, skip } = pageOf(req);
+    const direction = str(req.query.direction);
+    const dirFilter =
+      direction === "incoming" || direction === "outgoing" ? direction : null;
+
+    // Add direction to the per-collection queries where the schema
+    // supports it. Voicemails have no direction field, so we handle
+    // them via the include/exclude flag below.
+    const callQuery: Record<string, unknown> = { ...q };
+    const msgQuery: Record<string, unknown> = { ...q };
+    if (dirFilter) {
+      callQuery.direction = dirFilter;
+      msgQuery.direction = dirFilter;
+    }
+    const includeVoicemails = dirFilter !== "outgoing";
 
     const [calls, voicemails, conversations] = await Promise.all([
-      QuoCallModel.find(q).sort({ createdAt: -1 }).limit(500).lean(),
-      QuoVoicemailModel.find(q).sort({ createdAt: -1 }).limit(200).lean(),
+      QuoCallModel.find(callQuery).sort({ createdAt: -1 }).limit(500).lean(),
+      includeVoicemails
+        ? QuoVoicemailModel.find(q).sort({ createdAt: -1 }).limit(200).lean()
+        : Promise.resolve([]),
       // Roll up messages by conversation — one row per conversation
       // with the latest message + total count in the window.
       QuoMessageModel.aggregate([
-        { $match: q },
+        { $match: msgQuery },
         { $sort: { createdAt: -1 } },
         {
           $group: {
