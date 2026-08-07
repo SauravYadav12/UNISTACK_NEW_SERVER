@@ -455,6 +455,17 @@ export const updateLeave = async (req: Request, res: Response) => {
         res.status(403).json({ error: "Only HR / Admin can change leave status" });
         return;
       }
+      // Guardrail: never let a user decide their OWN leave, even if
+      // they hold an HR/Admin/SuperAdmin role. Prevents the "why is
+      // there a Rejected notification when I didn't confirm?"
+      // scenario where an admin accidentally rejects (or approves)
+      // their own request. Client also hides the buttons.
+      if (isOwner) {
+        res.status(403).json({
+          error: "You cannot approve or reject your own leave — please have another admin decide.",
+        });
+        return;
+      }
     } else {
       // Non-decision edit — owner of a Pending leave, or any admin.
       if (!isOwner && !isAdmin) {
