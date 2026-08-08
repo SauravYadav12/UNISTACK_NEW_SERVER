@@ -28,6 +28,8 @@ import { salesLeadRoute } from "./routes/salesLeadRoute";
 import { reportRoute } from "./routes/reportRoute";
 import { archiveRoute } from "./routes/archivesRoute";
 import { attendanceRoute } from "./routes/attendanceRoute";
+import { checkInRoute } from "./routes/checkInRoute";
+import { startCheckInSweepScheduler } from "./services/checkInSweepScheduler";
 import { accessControlRoute } from "./routes/accessControlRoute";
 import { leaveRoute } from "./routes/leaveRoute";
 import morgan from "morgan";
@@ -97,6 +99,7 @@ mongoose
     initPerformanceWarningScheduler();
     initInterviewReminderScheduler();
     startProbationNotificationScheduler();
+    startCheckInSweepScheduler();
   }).catch((err) => {
     console.error("DB connection error:", err);
   });
@@ -114,6 +117,7 @@ app.use("/teams", teamsRoute);
 app.use("/reports", reportRoute);
 app.use("/archives", archiveRoute);
 app.use("/attendance", attendanceRoute);
+app.use("/checkin", checkInRoute);
 app.use("/access-control", accessControlRoute);
 app.use("/leaves", leaveRoute);
 app.use("/holidays", holidayRoute);
