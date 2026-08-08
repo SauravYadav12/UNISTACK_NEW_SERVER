@@ -106,7 +106,8 @@ export const checkIn = async (req: Request, res: Response) => {
     await finalizeStaleForUser(user);
 
     // Idempotent: if a valid (< 14h) open session exists, return it rather
-    // than creating a duplicate.
+    // than creating a duplicate. (Returned even on a weekend so a session
+    // left open from Friday still displays + can be checked out.)
     const existingOpen = await CheckInSessionModel.findOne({
       userRef: user._id,
       checkOutAt: null,
@@ -117,6 +118,17 @@ export const checkIn = async (req: Request, res: Response) => {
     }
 
     const now = new Date();
+
+    // No NEW check-ins on weekends — Sat/Sun are company-wide non-working
+    // days (resolved in the employee's own timezone).
+    if (isWeekend(user.shift as string | undefined, now)) {
+      res.status(400).json({
+        status: "failed",
+        error: "Check-in is not allowed on weekends.",
+      });
+      return;
+    }
+
     const session = await CheckInSessionModel.create({
       userRef: user._id,
       userName: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim(),
