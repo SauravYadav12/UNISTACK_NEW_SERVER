@@ -69,7 +69,10 @@ const checkInSessionSchema = new Schema<CheckInSessionDoc>(
     autoCheckout: { type: Boolean, default: false },
     checkoutSource: {
       type: String,
-      enum: ["manual", "logout", "auto"],
+      // `null` must be an allowed enum value — an open session has no
+      // checkout source yet, and Mongoose validates the default against
+      // the enum on create.
+      enum: ["manual", "logout", "auto", null],
       default: null,
     },
     durationSeconds: { type: Number, default: null },
