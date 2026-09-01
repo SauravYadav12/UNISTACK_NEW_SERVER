@@ -124,14 +124,36 @@ export async function sendHolidayNoticesForToday() {
     noticeSentAt: { $exists: false },
   });
 
-  let totalEmails = 0;
+  // Collapse duplicate rows for the SAME holiday before sending. The
+  // collection can legitimately hold more than one row for a given date —
+  // a manually-added holiday alongside a synced one (the partial-unique
+  // index only dedups rows that carry a string `externalId`, so a manual
+  // row slips past), or rows left behind by an older sync that used a
+  // different `externalId` format. Without this collapse the notice sends
+  // once PER ROW, so everyone receives N identical emails. We send ONCE per
+  // distinct holiday (same country + date + name) and mark every duplicate
+  // row as sent so none of them re-fire.
+  type HolidayRow = (typeof holidays)[number];
+  const groups = new Map<string, HolidayRow[]>();
   for (const h of holidays) {
+    const key = `${h.country || "ALL"}|${h.fromDate}|${(h.name || "")
+      .trim()
+      .toLowerCase()}`;
+    const arr = groups.get(key);
+    if (arr) arr.push(h);
+    else groups.set(key, [h]);
+  }
+
+  let totalEmails = 0;
+  for (const group of groups.values()) {
+    const h = group[0]; // representative row for this holiday
+    const ids = group.map((g) => g._id);
     const country = (h.country || "ALL") as "IN" | "US" | "ALL";
     const recipients = await recipientsForCountry(country);
     if (!recipients.length) {
       // Still mark so we don't retry forever on an empty-list holiday.
-      await HolidayModel.updateOne(
-        { _id: h._id },
+      await HolidayModel.updateMany(
+        { _id: { $in: ids } },
         { $set: { noticeSentAt: new Date(), noticeSentTo: 0 } },
       );
       continue;
@@ -169,14 +191,15 @@ export async function sendHolidayNoticesForToday() {
       }
     }
 
-    await HolidayModel.updateOne(
-      { _id: h._id },
+    // Mark EVERY row in the group (all duplicates) as sent.
+    await HolidayModel.updateMany(
+      { _id: { $in: ids } },
       { $set: { noticeSentAt: new Date(), noticeSentTo: successCount } },
     );
     totalEmails += successCount;
   }
 
-  return { enabled: true, holidays: holidays.length, emails: totalEmails };
+  return { enabled: true, holidays: groups.size, emails: totalEmails };
 }
 
 export { buildVars, prettyDate, countryLabel, substitute };
