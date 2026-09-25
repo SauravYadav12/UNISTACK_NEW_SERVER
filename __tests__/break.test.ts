@@ -121,6 +121,33 @@ describe("OTP unlock flow", () => {
     expect(await NotificationModel.countDocuments({ type: "break.ended" })).toBeGreaterThanOrEqual(0);
   });
 
+  it("a login OTP issued moments ago does not block the unlock request", async () => {
+    const app = buildTestApp();
+    const { user, token } = await checkedInEmployee();
+    // What the login flow leaves behind: a fresh otp + otpExpiry 10 min out.
+    await UserModel.updateOne({ _id: user._id }, { $set: { otp: "999999", otpExpiry: new Date(Date.now() + 10 * 60 * 1000) } });
+    await request(app).post("/break/start").set("Authorization", token);
+    const sent = await request(app).post("/break/request-unlock-otp").set("Authorization", token);
+    expect(sent.status).toBe(200);
+    expect(sendMail).toHaveBeenCalledTimes(1);
+    const fresh = await UserModel.findById(user._id);
+    expect(fresh?.otp).not.toBe("999999");
+    expect(fresh?.breakOtpSentAt).toBeTruthy();
+  });
+
+  it("reports a mail failure instead of pretending the code was sent", async () => {
+    const app = buildTestApp();
+    const { user, token } = await checkedInEmployee();
+    await request(app).post("/break/start").set("Authorization", token);
+    (sendMail as jest.Mock).mockRejectedValueOnce(new Error("SMTP down"));
+    const res = await request(app).post("/break/request-unlock-otp").set("Authorization", token);
+    expect(res.status).toBe(502);
+    expect(res.body.code).toBe("MAIL_FAILED");
+    expect((await UserModel.findById(user._id))?.otp).toBeFalsy();
+    // Immediate retry is allowed (no cooldown was recorded).
+    expect((await request(app).post("/break/request-unlock-otp").set("Authorization", token)).status).toBe(200);
+  });
+
   it("locks OTP entry after 5 wrong codes", async () => {
     const app = buildTestApp();
     const { user, token } = await checkedInEmployee();

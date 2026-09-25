@@ -96,30 +96,44 @@ export const requestUnlockOtp = async (req: Request, res: Response) => {
       });
       return;
     }
-    if (user.otpExpiry) {
-      const issuedAt = user.otpExpiry.getTime() - otpExpiryInMs;
-      if (now - issuedAt < OTP_RESEND_COOLDOWN_MS) {
-        res.status(429).json({
-          status: "failed",
-          code: "OTP_COOLDOWN",
-          retryAt: new Date(issuedAt + OTP_RESEND_COOLDOWN_MS),
-          error: "A code was sent less than a minute ago.",
-        });
-        return;
-      }
+    // Cooldown keyed on the BREAK code only. The login flow also writes
+    // user.otp/otpExpiry, so those must not block an unlock request made
+    // right after signing in.
+    if (user.breakOtpSentAt && now - user.breakOtpSentAt.getTime() < OTP_RESEND_COOLDOWN_MS) {
+      res.status(429).json({
+        status: "failed",
+        code: "OTP_COOLDOWN",
+        retryAt: new Date(user.breakOtpSentAt.getTime() + OTP_RESEND_COOLDOWN_MS),
+        error: "A code was sent less than a minute ago. Check your inbox and spam folder.",
+      });
+      return;
     }
     const { error, otp } = await generateAndStoreOTP(user.email);
     if (error || !otp) {
       res.status(404).json({ status: "failed", error: "User not found." });
       return;
     }
-    await sendMail({
-      from: mailSenders.otp.from,
-      replyTo: mailSenders.otp.replyTo,
-      to: user.email,
-      subject: "Your Unistack access code — end break",
-      html: breakOtpTemplate(otp),
-    });
+    try {
+      await sendMail({
+        from: mailSenders.otp.from,
+        replyTo: mailSenders.otp.replyTo,
+        to: user.email,
+        subject: "Your Unistack access code — end break",
+        html: breakOtpTemplate(otp),
+      });
+    } catch (mailErr) {
+      // Don't leave a half-issued code behind: the user can retry at once.
+      await UserModel.updateOne({ _id: user._id }, { $set: { otp: null, otpExpiry: null } });
+      console.error(`[break] unlock code email to ${user.email} FAILED:`, mailErr);
+      res.status(502).json({
+        status: "failed",
+        code: "MAIL_FAILED",
+        error: "The code could not be emailed. Try again or contact your admin.",
+      });
+      return;
+    }
+    await UserModel.updateOne({ _id: user._id }, { $set: { breakOtpSentAt: new Date(now) } });
+    console.log(`[break] unlock code emailed to ${user.email} (from ${mailSenders.otp.from})`);
     res.status(200).json({
       status: "success",
       data: { sentTo: user.email, expiresInMs: otpExpiryInMs, resendAfterMs: OTP_RESEND_COOLDOWN_MS },
@@ -186,7 +200,7 @@ export const stop = async (req: Request, res: Response) => {
     }
     await UserModel.updateOne(
       { _id: user._id },
-      { $set: { otp: null, otpExpiry: null, breakOtpAttempts: 0, breakOtpLockedUntil: null } },
+      { $set: { otp: null, otpExpiry: null, breakOtpAttempts: 0, breakOtpLockedUntil: null, breakOtpSentAt: null } },
     );
     const closed = await closeBreak(open, "otp", { at: now });
     res.status(200).json({ status: "success", data: serialize(closed) });

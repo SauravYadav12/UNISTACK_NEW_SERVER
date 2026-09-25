@@ -11,6 +11,9 @@ export interface UserDoc extends Omit<IUser, '_id' | 'createdAt' | 'updatedAt' |
   breakOtpAttempts?: number;
   /** Set after too many wrong codes; unlock via admin or wait it out. */
   breakOtpLockedUntil?: Date | null;
+  /** When the last break-unlock code was emailed (resend cooldown). Kept
+   *  separate from otpExpiry, which the login OTP also uses. */
+  breakOtpSentAt?: Date | null;
   activity?: Array<{
     loggedInAt?: Date;
     loggedOutAt?: Date;
@@ -94,6 +97,7 @@ const UserSchema = new mongoose.Schema<UserDoc>(
     otpExpiry: Date,
     breakOtpAttempts: { type: Number, default: 0 },
     breakOtpLockedUntil: { type: Date, default: null },
+    breakOtpSentAt: { type: Date, default: null },
     activity: [
       {
         loggedInAt: { type: Date },
