@@ -23,6 +23,12 @@ import {
   startBreak,
   unlockModeFor,
 } from "../services/breakService";
+import {
+  getBreakPolicy,
+  updateBreakPolicy,
+  validatePolicyPatch,
+} from "../services/breakPolicyService";
+import { UserRole } from "../enums/UserEnum";
 import { subscribe } from "../services/breakChannel";
 import {
   OFFICE_TZ,
@@ -193,15 +199,17 @@ export const stop = async (req: Request, res: Response) => {
 export const current = async (req: Request, res: Response) => {
   try {
     const user = req.user as UserDoc;
-    const exempt = isExemptFromBreakFlow(user);
+    const policy = await getBreakPolicy();
+    const exempt = isExemptFromBreakFlow(user, policy);
     const open = exempt ? null : await findOpenBreak(user._id);
     res.status(200).json({
       status: "success",
       data: {
         break: serialize(open),
         exempt,
+        featureEnabled: policy.enabled,
         serverTime: new Date().toISOString(),
-        autoLockMinutes: autoLockMinutes(),
+        autoLockMinutes: autoLockMinutes(policy),
         unlockMode: open ? unlockModeFor(open) : null,
         officeTz: OFFICE_TZ,
         officeHours: officeHoursLabel(),
@@ -369,6 +377,46 @@ export const forceEnd = async (req: Request, res: Response) => {
     const reason = typeof req.body?.reason === "string" ? req.body.reason.slice(0, 300) : undefined;
     const closed = await closeBreak(doc, "admin", { endedBy: admin, reason });
     res.status(200).json({ status: "success", data: serialize(closed) });
+  } catch (error) {
+    res.status(500).json({ status: "failed", error: String(error) });
+  }
+};
+
+// GET /break/policy  (admin) — who the feature applies to.
+export const getPolicy = async (_req: Request, res: Response) => {
+  try {
+    res.status(200).json({ status: "success", data: await getBreakPolicy(true) });
+  } catch (error) {
+    res.status(500).json({ status: "failed", error: String(error) });
+  }
+};
+
+// PUT /break/policy  (super-admin / admin) body: { enabled?, enabledRoles?, autoLockMinutes? }
+export const putPolicy = async (req: Request, res: Response) => {
+  try {
+    const admin = req.user as UserDoc;
+    const roles = admin.role || [];
+    if (!roles.includes(UserRole.SuperAdmin) && !roles.includes(UserRole.Admin)) {
+      res.status(403).json({ status: "failed", error: "Only admins can change the break policy." });
+      return;
+    }
+    const v = validatePolicyPatch(req.body);
+    if ("error" in v) {
+      res.status(400).json({ status: "failed", error: v.error });
+      return;
+    }
+    const policy = await updateBreakPolicy(v.patch, admin);
+    // Anyone the new policy no longer covers must not stay locked.
+    const open = await BreakSessionModel.find({ endedAt: null });
+    let released = 0;
+    for (const b of open) {
+      const u = await UserModel.findById(b.userRef);
+      if (!u || isExemptFromBreakFlow(u, policy)) {
+        await closeBreak(b, "admin", { endedBy: admin, reason: "Break discipline disabled for this role" });
+        released += 1;
+      }
+    }
+    res.status(200).json({ status: "success", data: { policy, releasedBreaks: released } });
   } catch (error) {
     res.status(500).json({ status: "failed", error: String(error) });
   }

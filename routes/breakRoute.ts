@@ -10,6 +10,8 @@ import {
   openBreaks,
   forceEnd,
   stream,
+  getPolicy,
+  putPolicy,
 } from "../controllers/breakController";
 import { anyRoleGuard } from "../middleware/adminGuard";
 import { BREAK_ADMIN_ROLES } from "../services/breakService";
@@ -30,6 +32,9 @@ breakRoute.get("/stream", stream);
 
 // Admin / HR side.
 breakRoute.get("/open", jwt, adminOnly, openBreaks);
+// Policy: which roles the feature applies to (+ master switch, threshold).
+breakRoute.get("/policy", jwt, adminOnly, getPolicy);
+breakRoute.put("/policy", jwt, adminOnly, putPolicy);
 breakRoute.post("/:id/force-end", jwt, adminOnly, forceEnd);
 
 export { breakRoute };

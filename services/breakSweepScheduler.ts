@@ -13,6 +13,7 @@
 
 import { PresenceStateModel } from "../models/presenceStateModel";
 import { autoLockMinutes, autoStartPresenceBreak } from "./breakService";
+import { getBreakPolicy } from "./breakPolicyService";
 import { isWithinOfficeHours } from "../utils/officeTime";
 
 export const BREAK_SWEEP_INTERVAL_MS = 30 * 1000;
@@ -44,7 +45,9 @@ export async function runBreakSweepTick(now: Date = new Date()): Promise<SweepRe
     return result;
   }
 
-  const cutoff = new Date(now.getTime() - autoLockMinutes() * 60 * 1000);
+  const policy = await getBreakPolicy();
+  if (!policy.enabled) return result;
+  const cutoff = new Date(now.getTime() - autoLockMinutes(policy) * 60 * 1000);
   const due = await PresenceStateModel.find({
     awaySince: { $ne: null, $lte: cutoff },
   });

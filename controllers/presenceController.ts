@@ -15,10 +15,12 @@ import {
   autoLockMinutes,
   displayName,
   findOpenBreak,
+  isExemptForUser,
   isExemptFromBreakFlow,
   toObjectId,
   unlockModeFor,
 } from "../services/breakService";
+import { getBreakPolicy } from "../services/breakPolicyService";
 import { emitNotification } from "../services/notificationService";
 import { uploadBuffer } from "./storageController";
 import { OFFICE_TZ, IST_TZ, officeDate, officeHoursLabel, isWithinOfficeHours } from "../utils/officeTime";
@@ -94,7 +96,7 @@ export const ingestEvent = async (req: Request, res: Response) => {
       res.status(404).json({ status: "failed", error: "Employee not found" });
       return;
     }
-    if (isExemptFromBreakFlow(user)) {
+    if (await isExemptForUser(user)) {
       res.status(200).json({ status: "success", data: { ignored: "exempt" } });
       return;
     }
@@ -110,7 +112,7 @@ export const ingestEvent = async (req: Request, res: Response) => {
         userRef: user._id,
         awaySince: state?.awaySince ?? null,
         onBreak: !!(await findOpenBreak(user._id)),
-        autoLockMinutes: autoLockMinutes(),
+        autoLockMinutes: autoLockMinutes(await getBreakPolicy()),
         withinOfficeHours: isWithinOfficeHours(at),
       },
     });
@@ -201,7 +203,7 @@ export const resolveUnidentified = async (req: Request, res: Response) => {
         return;
       }
       doc.resolvedUserRef = user._id;
-      if (!isExemptFromBreakFlow(user)) {
+      if (!(await isExemptForUser(user))) {
         await applyPresenceEvent(user, doc.direction === "out" ? "left" : "returned", doc.at, {
           cameraId: doc.cameraId,
         });
@@ -243,7 +245,8 @@ export const board = async (_req: Request, res: Response) => {
     const users = await UserModel.find({ active: true })
       .select("firstName lastName email role shift")
       .lean();
-    const employees = users.filter((u) => !isExemptFromBreakFlow(u));
+    const policy = await getBreakPolicy();
+    const employees = users.filter((u) => !isExemptFromBreakFlow(u, policy));
     const ids = employees.map((u) => u._id);
     const [openCheckIns, openBreaks, states, recentCheckouts] = await Promise.all([
       CheckInSessionModel.find({ userRef: { $in: ids }, checkOutAt: null }).lean(),

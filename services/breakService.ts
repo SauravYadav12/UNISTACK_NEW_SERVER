@@ -13,7 +13,7 @@ import { UserRole } from "../enums/UserEnum";
 import { emitNotification } from "./notificationService";
 import { officeDate } from "../utils/officeTime";
 import { publish } from "./breakChannel";
-import ENV_VARS from "../config/env.config";
+import { BreakPolicy, getBreakPolicy, roleFlowEnabled } from "./breakPolicyService";
 
 /**
  * Break-discipline domain logic shared by the controllers, the presence
@@ -27,21 +27,28 @@ export const BREAK_ADMIN_ROLES: UserRole[] = [
   UserRole.Hr,
 ];
 
-export function autoLockMinutes(): number {
-  const n = Number(ENV_VARS.BREAK_AUTO_LOCK_MINUTES);
-  return Number.isFinite(n) && n > 0 ? n : 5;
+export function autoLockMinutes(policy: BreakPolicy): number {
+  return policy.autoLockMinutes;
 }
 
 /**
- * Admins and super-admins are OUT of the break flow entirely: no Break
- * button, no lock screen, no presence lock, not listed on the board. They
- * are the operators who receive alerts and unlock others.
+ * Who is OUT of the break flow (no Break button, no lock screen, no
+ * presence lock, not on the board) is decided by the BreakPolicy: a master
+ * switch plus the set of roles it applies to. Super-admins are always out;
+ * admins are out by default but can be switched on. Pass the policy you
+ * already fetched, or use `isExemptForUser` for a one-off check.
  */
 export function isExemptFromBreakFlow(
   user: { role?: string[] | null } | null | undefined,
+  policy: BreakPolicy,
 ): boolean {
-  const roles = user?.role || [];
-  return roles.includes(UserRole.SuperAdmin) || roles.includes(UserRole.Admin);
+  return !roleFlowEnabled(user, policy);
+}
+
+export async function isExemptForUser(
+  user: { role?: string[] | null } | null | undefined,
+): Promise<boolean> {
+  return isExemptFromBreakFlow(user, await getBreakPolicy());
 }
 
 export function isBreakAdmin(user: { role?: string[] | null } | null | undefined): boolean {
@@ -192,7 +199,7 @@ export async function startBreak(
   source: BreakSource,
   extra: { cameraId?: string; reason?: string; startedAt?: Date } = {},
 ): Promise<StartBreakResult | { error: "NOT_CHECKED_IN" | "EXEMPT" }> {
-  if (isExemptFromBreakFlow(user)) return { error: "EXEMPT" };
+  if (await isExemptForUser(user)) return { error: "EXEMPT" };
   const existing = await findOpenBreak(user._id);
   if (existing) return { doc: existing, created: false };
   const checkIn = await findOpenCheckIn(user._id);
