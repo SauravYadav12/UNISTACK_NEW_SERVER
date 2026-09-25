@@ -93,6 +93,23 @@ const ENV_VARS = {
   // v1 defense.
   QUO_API_KEY: process.env.QUO_API_KEY,
   QUO_WEBHOOK_SECRET: process.env.QUO_WEBHOOK_SECRET,
+
+  // ── Break discipline / presence (Mark1) ─────────────────────────────
+  // Shared secret the local vision service sends as `x-api-key` on
+  // POST /presence/events and /presence/unidentified.
+  PRESENCE_API_KEY: process.env.PRESENCE_API_KEY,
+  // Minutes an employee may be away (camera-detected) before Unistack
+  // locks them with an unannounced break.
+  BREAK_AUTO_LOCK_MINUTES: process.env.BREAK_AUTO_LOCK_MINUTES || "5",
+  // Optional SSE accelerator for lock/unlock push (polling stays primary).
+  BREAK_SSE_ENABLED: process.env.BREAK_SSE_ENABLED || "false",
+  // Office hours in the office timezone; the auto-lock only fires inside
+  // this window. IANA zone so EST/EDT is automatic.
+  OFFICE_TZ: process.env.OFFICE_TZ || "America/New_York",
+  OFFICE_START: process.env.OFFICE_START || "09:00",
+  OFFICE_END: process.env.OFFICE_END || "18:00",
+  // Snapshot retention for unidentified door crossings (TTL index).
+  UNIDENTIFIED_RETENTION_DAYS: process.env.UNIDENTIFIED_RETENTION_DAYS || "30",
 };
 
 logMissingEnvVars(ENV_VARS, "Missing environment variables in .env");

@@ -30,6 +30,9 @@ import { archiveRoute } from "./routes/archivesRoute";
 import { attendanceRoute } from "./routes/attendanceRoute";
 import { checkInRoute } from "./routes/checkInRoute";
 import { startCheckInSweepScheduler } from "./services/checkInSweepScheduler";
+import { breakRoute } from "./routes/breakRoute";
+import { presenceRoute } from "./routes/presenceRoute";
+import { startBreakSweepScheduler } from "./services/breakSweepScheduler";
 import { accessControlRoute } from "./routes/accessControlRoute";
 import { leaveRoute } from "./routes/leaveRoute";
 import morgan from "morgan";
@@ -100,6 +103,7 @@ mongoose
     initInterviewReminderScheduler();
     startProbationNotificationScheduler();
     startCheckInSweepScheduler();
+    startBreakSweepScheduler();
   }).catch((err) => {
     console.error("DB connection error:", err);
   });
@@ -118,6 +122,11 @@ app.use("/reports", reportRoute);
 app.use("/archives", archiveRoute);
 app.use("/attendance", attendanceRoute);
 app.use("/checkin", checkInRoute);
+// Break discipline: Break button, lock screen, OTP / admin unlock, reports.
+app.use("/break", breakRoute);
+// Presence: camera events from the local vision service (x-api-key) +
+// the team board and unidentified-snapshot review (JWT).
+app.use("/presence", presenceRoute);
 app.use("/access-control", accessControlRoute);
 app.use("/leaves", leaveRoute);
 app.use("/holidays", holidayRoute);

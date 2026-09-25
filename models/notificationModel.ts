@@ -15,7 +15,8 @@ export type NotificationLinkKind =
   | "project"
   | "timesheet"
   | "filter"
-  | "employee-management";
+  | "employee-management"
+  | "break";
 
 export interface NotificationLink {
   kind: NotificationLinkKind;
@@ -34,6 +35,10 @@ export interface NotificationLink {
   /** For employee-management links — which employee triggered the
    *  notification (probation review, onboarding step, etc.). */
   employeeRef?: string;
+  /** Break-discipline links: the BreakSession that triggered it. */
+  breakId?: string;
+  /** Unidentified door-crossing snapshot awaiting admin review. */
+  unidentifiedId?: string;
 }
 
 export interface NotificationActor {
@@ -67,6 +72,8 @@ const NotificationLinkSchema = new Schema<NotificationLink>(
         "project",
         "timesheet",
         "filter",
+        "employee-management",
+        "break",
       ],
       required: true,
     },
@@ -81,6 +88,9 @@ const NotificationLinkSchema = new Schema<NotificationLink>(
     approvalId: { type: String },
     periodMonth: { type: String },
     filterReqIDs: { type: [String], default: undefined },
+    employeeRef: { type: String },
+    breakId: { type: String },
+    unidentifiedId: { type: String },
   },
   { _id: false },
 );

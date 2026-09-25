@@ -7,6 +7,10 @@ import { IUser } from "../interface/modelInterfaces";
 export interface UserDoc extends Omit<IUser, '_id' | 'createdAt' | 'updatedAt' | 'otpExpiry' | 'activity'>, Document {
   _id: mongoose.Types.ObjectId;
   otpExpiry?: Date;
+  /** Wrong break-unlock codes in a row; reset on success. */
+  breakOtpAttempts?: number;
+  /** Set after too many wrong codes; unlock via admin or wait it out. */
+  breakOtpLockedUntil?: Date | null;
   activity?: Array<{
     loggedInAt?: Date;
     loggedOutAt?: Date;
@@ -88,6 +92,8 @@ const UserSchema = new mongoose.Schema<UserDoc>(
     },
     otp: String,
     otpExpiry: Date,
+    breakOtpAttempts: { type: Number, default: 0 },
+    breakOtpLockedUntil: { type: Date, default: null },
     activity: [
       {
         loggedInAt: { type: Date },

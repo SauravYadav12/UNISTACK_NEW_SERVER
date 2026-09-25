@@ -58,7 +58,18 @@ export function loginOtpTemplate(
   });
 }
 
-function baseOtpTemplate(
+export function breakOtpTemplate(
+  otp: string | number,
+  expiry: string = otpExpiryInMs / (1000 * 60) + " minutes"
+) {
+  return baseOtpTemplate(otp, {
+    title: "Your access code to end your break",
+    description: `Enter this code on the Unistack lock screen to end your break and resume work. It is valid for ${expiry}.`,
+    note: "If you are not on a break right now, contact your admin immediately.",
+  });
+}
+
+export function baseOtpTemplate(
   otp: string | number,
   options: {
     title: string;

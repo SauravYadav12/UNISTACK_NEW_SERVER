@@ -38,5 +38,7 @@ jest.mock("../utils/mailTransporter", () => {
     otpExpiryInMs: 1000 * 60 * 10,
     resetPasswordOtpTemplate: (otp: unknown) => `OTP:${otp}`,
     loginOtpTemplate: (otp: unknown) => `OTP:${otp}`,
+    breakOtpTemplate: (otp: unknown) => `OTP:${otp}`,
+    baseOtpTemplate: (otp: unknown) => `OTP:${otp}`,
   };
 });

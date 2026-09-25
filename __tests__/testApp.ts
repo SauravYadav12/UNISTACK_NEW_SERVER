@@ -11,6 +11,10 @@ import { timesheetRoute } from "../routes/timesheetRoute";
 import { timesheetApprovalRoute } from "../routes/timesheetApprovalRoute";
 import { invoiceRoute } from "../routes/invoiceRoute";
 import { invoiceEmailSettingsRoute } from "../routes/invoiceEmailSettingsRoute";
+import { checkInRoute } from "../routes/checkInRoute";
+import { breakRoute } from "../routes/breakRoute";
+import { presenceRoute } from "../routes/presenceRoute";
+import { usersRoute } from "../routes/usersRoute";
 
 let cached: express.Express | null = null;
 
@@ -32,6 +36,10 @@ export function buildTestApp(): express.Express {
   app.use("/timesheet-approvals", timesheetApprovalRoute);
   app.use("/invoices", invoiceRoute);
   app.use("/invoice-email-settings", invoiceEmailSettingsRoute);
+  app.use("/checkin", checkInRoute);
+  app.use("/break", breakRoute);
+  app.use("/presence", presenceRoute);
+  app.use("/users", usersRoute);
 
   cached = app;
   return app;

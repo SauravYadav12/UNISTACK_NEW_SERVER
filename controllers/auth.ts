@@ -19,6 +19,7 @@ import { Request, Response } from "express";
 import ENV_VARS from "../config/env.config";
 import { mailSenders } from "../utils/mailSenders";
 import { UserRole } from "../enums/UserEnum";
+import { openBreakSummary } from "../services/breakService";
 
 export function extractIUser(user: UserDoc) {
   return {
@@ -136,6 +137,7 @@ export const login = async (req: Request, res: Response) => {
             res.status(200).json({
               user: iUser,
               token: "JWT " + token,
+              openBreak: await openBreakSummary(user._id),
             });
           } else {
             res.status(200).json({
@@ -172,6 +174,8 @@ export const syncIUser = async (req: Request, res: Response) => {
     res.status(200).json({
       status: "success",
       user,
+      // Lets the client re-lock on first paint after a reload / re-login.
+      openBreak: await openBreakSummary(iUser._id),
     });
   } catch (error) {
     res.status(400).json({
@@ -287,6 +291,7 @@ export const verifyOtp = async (req: Request, res: Response) => {
       token: "JWT " + token,
       message: "verification successfull.",
       status: true,
+      openBreak: await openBreakSummary(user._id),
     });
   } catch (error) {
     console.log(error);
@@ -294,7 +299,7 @@ export const verifyOtp = async (req: Request, res: Response) => {
   }
 };
 
-const generateAndStoreOTP = async (email: string) => {
+export const generateAndStoreOTP = async (email: string) => {
   const user = await UserModel.findOne({ email });
   if (!user) {
     return { error: "User not found." };

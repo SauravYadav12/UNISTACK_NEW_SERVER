@@ -12,16 +12,17 @@ import { handleMarkAttendance } from "./attendanceController";
 import { UserDoc } from "../models/userModel";
 import { UserRole } from "../enums/UserEnum";
 import { UserShift } from "../interface/constants";
+import { clearPresenceOnCheckIn, findOpenBreak } from "../services/breakService";
 
 // Shift → IANA timezone. Everything about "which calendar day is this
 // check-in on" is resolved in the employee's own timezone so a US-shift
 // employee checking in at 11pm EST doesn't get logged on the next IST day.
-function tzForShift(shift?: string): string {
+export function tzForShift(shift?: string): string {
   return shift === UserShift.India ? "Asia/Kolkata" : "America/New_York";
 }
 
 // Log grouping key — `YYYY-MM-DD` in the employee's timezone.
-function sessionDate(shift: string | undefined, at: Date): string {
+export function sessionDate(shift: string | undefined, at: Date): string {
   return moment.tz(at, tzForShift(shift)).format("YYYY-MM-DD");
 }
 
@@ -143,6 +144,8 @@ export const checkIn = async (req: Request, res: Response) => {
     if (!isWeekend(user.shift as string | undefined, now)) {
       await markPresentForCheckIn(user, now);
     }
+    // A fresh working session resets whatever the cameras last saw.
+    await clearPresenceOnCheckIn(user._id);
 
     res.status(201).json({ status: "success", data: session });
   } catch (error) {
@@ -157,6 +160,18 @@ export const checkOut = async (req: Request, res: Response) => {
     const rawSource = (req.body?.source as string) || "manual";
     const source: CheckoutSource =
       rawSource === "logout" ? "logout" : "manual";
+
+    // While a break is open the workstation is locked: no checkout, no
+    // logout-implied checkout. The lock is cleared only by OTP or an admin.
+    const openBreak = await findOpenBreak(user._id);
+    if (openBreak) {
+      res.status(423).json({
+        status: "failed",
+        code: "BREAK_OPEN",
+        error: "You are on a break. End the break before checking out.",
+      });
+      return;
+    }
 
     const session = await CheckInSessionModel.findOne({
       userRef: user._id,

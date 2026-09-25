@@ -73,6 +73,31 @@ function buildObjectUrl(bucketName: string, key: string): string {
   return `${ep}/${bucketName}/${key}`;
 }
 
+/**
+ * Programmatic upload for server-generated objects (e.g. presence
+ * snapshots). Same bucket/URL rules as `uploadFile`; returns the public
+ * URL. Throws on failure — callers decide how to surface it.
+ */
+export async function uploadBuffer(
+  body: Buffer,
+  key: string,
+  contentType: string,
+  target: "primary" | "script" = "primary",
+): Promise<string> {
+  const bucketToUse = target === "script" ? bucket2 : bucket;
+  if (!bucketToUse) throw new Error("Storage bucket not configured");
+  await s3Client.send(
+    new PutObjectCommand({
+      Bucket: bucketToUse,
+      Key: key,
+      Body: body,
+      ACL: "public-read",
+      ContentType: contentType,
+    }),
+  );
+  return buildObjectUrl(bucketToUse, key);
+}
+
 export const uploadFile = async (req: Request, res: Response) => {
   if (!req.file) {
     res.status(400).json({ error: "No file to upload" });
