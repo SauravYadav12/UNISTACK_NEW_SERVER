@@ -317,6 +317,8 @@ interface SummaryBucket {
   totalSeconds: number;
   longestSeconds: number;
   unannouncedCount: number;
+  idleCount: number;
+  presenceCount: number;
   openCount: number;
 }
 
@@ -342,13 +344,15 @@ export const summary = async (req: Request, res: Response) => {
     const perDay = new Map<string, SummaryBucket>();
     const perUser = new Map<string, SummaryBucket>();
     const totals: SummaryBucket = {
-      key: "total", userRef: "", count: 0, totalSeconds: 0, longestSeconds: 0, unannouncedCount: 0, openCount: 0,
+      key: "total", userRef: "", count: 0, totalSeconds: 0, longestSeconds: 0, unannouncedCount: 0, idleCount: 0, presenceCount: 0, openCount: 0,
     };
-    const bump = (b: SummaryBucket, seconds: number, unannounced: boolean, open: boolean) => {
+    const bump = (b: SummaryBucket, seconds: number, source: string, open: boolean) => {
       b.count += 1;
       b.totalSeconds += seconds;
       b.longestSeconds = Math.max(b.longestSeconds, seconds);
-      if (unannounced) b.unannouncedCount += 1;
+      if (source !== "manual") b.unannouncedCount += 1;
+      if (source === "idle") b.idleCount += 1;
+      if (source === "presence") b.presenceCount += 1;
       if (open) b.openCount += 1;
     };
     for (const s of sessions) {
@@ -356,24 +360,23 @@ export const summary = async (req: Request, res: Response) => {
       const seconds = open
         ? Math.max(0, Math.round((nowMs - new Date(s.startedAt).getTime()) / 1000))
         : s.durationSeconds || 0;
-      const unannounced = s.source !== "manual";
       const uid = String(s.userRef);
       const dayKey = wantAll ? `${s.date}|${uid}` : s.date;
       if (!perDay.has(dayKey)) {
         perDay.set(dayKey, {
           key: dayKey, date: s.date, userRef: uid, userName: s.userName, userEmail: s.userEmail,
-          count: 0, totalSeconds: 0, longestSeconds: 0, unannouncedCount: 0, openCount: 0,
+          count: 0, totalSeconds: 0, longestSeconds: 0, unannouncedCount: 0, idleCount: 0, presenceCount: 0, openCount: 0,
         });
       }
-      bump(perDay.get(dayKey) as SummaryBucket, seconds, unannounced, open);
+      bump(perDay.get(dayKey) as SummaryBucket, seconds, s.source, open);
       if (!perUser.has(uid)) {
         perUser.set(uid, {
           key: uid, userRef: uid, userName: s.userName, userEmail: s.userEmail,
-          count: 0, totalSeconds: 0, longestSeconds: 0, unannouncedCount: 0, openCount: 0,
+          count: 0, totalSeconds: 0, longestSeconds: 0, unannouncedCount: 0, idleCount: 0, presenceCount: 0, openCount: 0,
         });
       }
-      bump(perUser.get(uid) as SummaryBucket, seconds, unannounced, open);
-      bump(totals, seconds, unannounced, open);
+      bump(perUser.get(uid) as SummaryBucket, seconds, s.source, open);
+      bump(totals, seconds, s.source, open);
     }
     const byUser = [...perUser.values()].map((b) => ({
       ...b,
