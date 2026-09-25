@@ -32,6 +32,9 @@ export interface BreakPolicyDoc extends Document {
   enabled: boolean;
   enabledRoles: string[];
   autoLockMinutes: number | null;
+  /** Keyboard/mouse inactivity that locks the workstation; 0 = off. */
+  idleMinutes: number | null;
+  idleUnlockMode: "otp" | "admin";
   updatedByRef?: Types.ObjectId | null;
   updatedByName?: string;
   createdAt: Date;
@@ -44,6 +47,8 @@ const breakPolicySchema = new Schema<BreakPolicyDoc>(
     enabled: { type: Boolean, default: true },
     enabledRoles: { type: [String], default: () => [...DEFAULT_ENABLED_BREAK_ROLES] },
     autoLockMinutes: { type: Number, default: null },
+    idleMinutes: { type: Number, default: null },
+    idleUnlockMode: { type: String, enum: ["otp", "admin"], default: "admin" },
     updatedByRef: { type: Schema.Types.ObjectId, ref: "User", default: null },
     updatedByName: { type: String },
   },

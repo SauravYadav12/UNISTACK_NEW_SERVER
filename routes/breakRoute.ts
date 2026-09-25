@@ -2,6 +2,7 @@ import { Router } from "express";
 import passport from "passport";
 import {
   start,
+  idle,
   requestUnlockOtp,
   stop,
   current,
@@ -22,6 +23,8 @@ const adminOnly = anyRoleGuard(...BREAK_ADMIN_ROLES);
 
 // Employee side — the lock screen talks to these.
 breakRoute.post("/start", jwt, start);
+// Inactivity report → server decides whether it becomes an idle break.
+breakRoute.post("/idle", jwt, idle);
 breakRoute.post("/request-unlock-otp", jwt, requestUnlockOtp);
 breakRoute.post("/stop", jwt, stop);
 breakRoute.get("/current", jwt, current);

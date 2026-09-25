@@ -5,6 +5,7 @@ import {
   BreakEndedSource,
   BreakSource,
   isOtpUnlockable,
+  unlockModeForSource,
 } from "../models/breakSessionModel";
 import { CheckInSessionModel } from "../models/checkInSessionModel";
 import { PresenceStateModel } from "../models/presenceStateModel";
@@ -117,14 +118,17 @@ async function activeRecipientIds(exclude: Types.ObjectId): Promise<Types.Object
 async function broadcastStarted(doc: BreakSessionDoc): Promise<void> {
   const name = doc.userName || doc.userEmail || "An employee";
   const unannounced = doc.source !== "manual";
+  const idle = doc.source === "idle";
   const recipients = await activeRecipientIds(doc.userRef);
   await emitNotification({
     recipients,
     type: unannounced ? "break.unannounced.team" : "break.started",
-    title: unannounced ? `${name} is away (unannounced)` : `${name} is on break`,
-    body: unannounced
-      ? "Detected away from the office without pressing Break. Their workstation is locked."
-      : "They pressed Break and their workstation is locked until they return.",
+    title: idle ? `${name} is away (inactive)` : unannounced ? `${name} is away (unannounced)` : `${name} is on break`,
+    body: idle
+      ? "No keyboard or mouse activity — their workstation locked itself."
+      : unannounced
+        ? "Detected away from the office without pressing Break. Their workstation is locked."
+        : "They pressed Break and their workstation is locked until they return.",
     link: { kind: "break", breakId: String(doc._id), employeeRef: String(doc.userRef) },
     dedupeKey: `break:${doc._id}:started`,
     actor: { _id: doc.userRef, name },
@@ -137,8 +141,11 @@ async function broadcastStarted(doc: BreakSessionDoc): Promise<void> {
     await emitNotification({
       recipients: admins,
       type: "break.unannounced",
-      title: `${name} stepped away — unannounced break (locked)`,
-      body: "Only an admin can unlock them. Open Attendance Dashboard → Locked now.",
+      title: idle ? `${name} went inactive — workstation locked` : `${name} stepped away — unannounced break (locked)`,
+      body:
+        doc.unlockMode === "admin"
+          ? "Only an admin can unlock them. Open Attendance Dashboard → Locked now."
+          : "They can unlock with an emailed code; you can also unlock them from Attendance Dashboard.",
       link: { kind: "break", breakId: String(doc._id), employeeRef: String(doc.userRef) },
       dedupeKey: `break:${doc._id}:admin`,
       actor: { _id: doc.userRef, name },
@@ -206,6 +213,7 @@ export async function startBreak(
   if (!checkIn) return { error: "NOT_CHECKED_IN" };
 
   const startedAt = extra.startedAt || new Date();
+  const policy = await getBreakPolicy();
   const doc = await BreakSessionModel.create({
     userRef: user._id,
     checkInSessionRef: checkIn._id,
@@ -216,6 +224,7 @@ export async function startBreak(
     startedAt,
     endedAt: null,
     source,
+    unlockMode: unlockModeForSource(source, policy.idleUnlockMode),
     endedSource: null,
     cameraId: extra.cameraId,
     reason: extra.reason,

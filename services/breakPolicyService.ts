@@ -15,6 +15,9 @@ export interface BreakPolicy {
   autoLockMinutes: number;
   /** Raw override, null when the env default is in use. */
   autoLockMinutesOverride: number | null;
+  /** Inactivity lock threshold in minutes; 0 disables idle locking. */
+  idleMinutes: number;
+  idleUnlockMode: "otp" | "admin";
   togglableRoles: string[];
   updatedAt: Date | null;
   updatedByName: string | null;
@@ -28,12 +31,16 @@ export function envAutoLockMinutes(): number {
   return Number.isFinite(n) && n > 0 ? n : 5;
 }
 
+export const DEFAULT_IDLE_MINUTES = 5;
+
 export function defaultBreakPolicy(): BreakPolicy {
   return {
     enabled: true,
     enabledRoles: [...DEFAULT_ENABLED_BREAK_ROLES],
     autoLockMinutes: envAutoLockMinutes(),
     autoLockMinutesOverride: null,
+    idleMinutes: DEFAULT_IDLE_MINUTES,
+    idleUnlockMode: "admin",
     togglableRoles: [...TOGGLABLE_BREAK_ROLES],
     updatedAt: null,
     updatedByName: null,
@@ -44,6 +51,8 @@ function toPolicy(doc: {
   enabled: boolean;
   enabledRoles: string[];
   autoLockMinutes: number | null;
+  idleMinutes?: number | null;
+  idleUnlockMode?: "otp" | "admin";
   updatedAt?: Date;
   updatedByName?: string;
 } | null): BreakPolicy {
@@ -54,6 +63,8 @@ function toPolicy(doc: {
     enabledRoles: doc.enabledRoles.filter((r) => (TOGGLABLE_BREAK_ROLES as string[]).includes(r)),
     autoLockMinutes: override ?? envAutoLockMinutes(),
     autoLockMinutesOverride: override,
+    idleMinutes: doc.idleMinutes == null ? DEFAULT_IDLE_MINUTES : Math.max(0, doc.idleMinutes),
+    idleUnlockMode: doc.idleUnlockMode === "otp" ? "otp" : "admin",
     togglableRoles: [...TOGGLABLE_BREAK_ROLES],
     updatedAt: doc.updatedAt ?? null,
     updatedByName: doc.updatedByName ?? null,
@@ -90,6 +101,8 @@ export interface BreakPolicyPatch {
   enabled?: boolean;
   enabledRoles?: string[];
   autoLockMinutes?: number | null;
+  idleMinutes?: number;
+  idleUnlockMode?: "otp" | "admin";
 }
 
 export function validatePolicyPatch(body: unknown): { patch: BreakPolicyPatch } | { error: string } {
@@ -116,6 +129,15 @@ export function validatePolicyPatch(body: unknown): { patch: BreakPolicyPatch } 
       patch.autoLockMinutes = Math.round(n);
     }
   }
+  if (b.idleMinutes !== undefined) {
+    const n = Number(b.idleMinutes);
+    if (!Number.isFinite(n) || n < 0 || n > 240) return { error: "idleMinutes must be between 0 (off) and 240" };
+    patch.idleMinutes = Math.round(n);
+  }
+  if (b.idleUnlockMode !== undefined) {
+    if (b.idleUnlockMode !== "otp" && b.idleUnlockMode !== "admin") return { error: "idleUnlockMode must be 'otp' or 'admin'" };
+    patch.idleUnlockMode = b.idleUnlockMode;
+  }
   return { patch };
 }
 
@@ -128,6 +150,8 @@ export async function updateBreakPolicy(
   if (patch.enabled !== undefined) $set.enabled = patch.enabled;
   if (patch.enabledRoles !== undefined) $set.enabledRoles = patch.enabledRoles;
   if (patch.autoLockMinutes !== undefined) $set.autoLockMinutes = patch.autoLockMinutes;
+  if (patch.idleMinutes !== undefined) $set.idleMinutes = patch.idleMinutes;
+  if (patch.idleUnlockMode !== undefined) $set.idleUnlockMode = patch.idleUnlockMode;
   await BreakPolicyModel.findOneAndUpdate(
     { key: BREAK_POLICY_KEY },
     { $set, $setOnInsert: { key: BREAK_POLICY_KEY } },

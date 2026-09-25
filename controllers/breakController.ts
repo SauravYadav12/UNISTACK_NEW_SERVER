@@ -32,6 +32,7 @@ import { UserRole } from "../enums/UserEnum";
 import { subscribe } from "../services/breakChannel";
 import {
   OFFICE_TZ,
+  isWithinOfficeHours,
   normaliseScope,
   officeDayRange,
   officeHoursLabel,
@@ -61,6 +62,41 @@ export const start = async (req: Request, res: Response) => {
         return;
       }
       res.status(404).json({ status: "failed", code: "NOT_CHECKED_IN", error: "Check in before taking a break." });
+      return;
+    }
+    res.status(result.created ? 201 : 200).json({ status: "success", data: serialize(result.doc) });
+  } catch (error) {
+    res.status(500).json({ status: "failed", error: String(error) });
+  }
+};
+
+// POST /break/idle  body: { idleSeconds }
+// The client reports keyboard/mouse inactivity (OS idle clock on desktop,
+// tab activity in the browser). The server re-checks every rule before
+// locking so a stale or forged report can't lock someone it shouldn't.
+export const idle = async (req: Request, res: Response) => {
+  try {
+    const user = req.user as UserDoc;
+    const policy = await getBreakPolicy();
+    const idleSeconds = Number(req.body?.idleSeconds);
+    if (!policy.enabled || policy.idleMinutes <= 0) {
+      res.status(409).json({ status: "failed", code: "IDLE_DISABLED", error: "Idle locking is off." });
+      return;
+    }
+    if (!Number.isFinite(idleSeconds) || idleSeconds < policy.idleMinutes * 60) {
+      res.status(400).json({ status: "failed", code: "NOT_IDLE_ENOUGH", error: `Idle for less than ${policy.idleMinutes} minutes.` });
+      return;
+    }
+    if (!isWithinOfficeHours()) {
+      res.status(409).json({ status: "failed", code: "OUTSIDE_OFFICE_HOURS", error: "Outside office hours." });
+      return;
+    }
+    const result = await startBreak(user, "idle", {
+      reason: `Inactive for ${Math.round(idleSeconds / 60)} min`,
+    });
+    if ("error" in result) {
+      const code = result.error;
+      res.status(code === "EXEMPT" ? 403 : 404).json({ status: "failed", code, error: code === "EXEMPT" ? "Not in the break flow." : "Not checked in." });
       return;
     }
     res.status(result.created ? 201 : 200).json({ status: "success", data: serialize(result.doc) });
@@ -224,6 +260,8 @@ export const current = async (req: Request, res: Response) => {
         featureEnabled: policy.enabled,
         serverTime: new Date().toISOString(),
         autoLockMinutes: autoLockMinutes(policy),
+        idleMinutes: policy.idleMinutes,
+        idleUnlockMode: policy.idleUnlockMode,
         unlockMode: open ? unlockModeFor(open) : null,
         officeTz: OFFICE_TZ,
         officeHours: officeHoursLabel(),
