@@ -100,6 +100,18 @@ const ENV_VARS = {
   // Max new jobs extracted per run (throttles Claude cost). Default 80.
   IT_JOB_PER_RUN_CAP: process.env.IT_JOB_PER_RUN_CAP,
 
+  // IT Job Search — JSearch board sweep (Phase 2). MANUAL trigger only, no
+  // scheduler; naturally gated by JSEARCH_RAPIDAPI_KEY above.
+  // Optional comma-separated override of the curated role list; a built-in
+  // default set is used when unset.
+  IT_JOB_JSEARCH_QUERIES: process.env.IT_JOB_JSEARCH_QUERIES,
+  // Max new jobs created per manual board sweep (throttles Claude cost).
+  // Default 60.
+  IT_JOB_JSEARCH_PER_RUN_CAP: process.env.IT_JOB_JSEARCH_PER_RUN_CAP,
+  // Freshness window passed to JSearch (all|today|3days|week|month).
+  // Default 3days.
+  IT_JOB_JSEARCH_DATE_POSTED: process.env.IT_JOB_JSEARCH_DATE_POSTED,
+
   // Quo (OpenPhone) telephony integration. QUO_API_KEY is sent as the
   // raw `Authorization` header (no Bearer prefix) per Quo's docs.
   // QUO_WEBHOOK_SECRET is a random 32-byte hex value that we place into

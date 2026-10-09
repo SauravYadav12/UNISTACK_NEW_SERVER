@@ -5,6 +5,7 @@ import { RequirementModel } from "../models/requirementModel";
 import { nextParentReqID } from "./requirementController";
 import { UserDoc } from "../models/userModel";
 import { ingestJobEmails } from "../services/emailJobIngestService";
+import { ingestJsearchJobs } from "../services/jsearchIngestService";
 
 // The requirement-shaped fields a reviewer may edit and that get copied
 // into the Requirement on approval. Pipeline/classification metadata and
@@ -229,6 +230,16 @@ export const rejectSourcedJob = async (req: Request, res: Response) => {
 export const runEmailIngest = async (_req: Request, res: Response) => {
   try {
     const summary = await ingestJobEmails();
+    res.status(200).json({ status: "success", data: summary });
+  } catch (error) {
+    res.status(500).json({ status: "failed", error: String(error) });
+  }
+};
+
+// POST /it-job-search/ingest/jsearch  — manual trigger of the board sweep.
+export const runJsearchIngest = async (_req: Request, res: Response) => {
+  try {
+    const summary = await ingestJsearchJobs();
     res.status(200).json({ status: "success", data: summary });
   } catch (error) {
     res.status(500).json({ status: "failed", error: String(error) });
