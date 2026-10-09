@@ -62,7 +62,7 @@ import { initLeaveBalanceSystem } from "./services/leaveBalanceScheduler";
 import { initPerformanceWarningScheduler } from "./services/performanceWarningScheduler";
 import { initInterviewReminderScheduler } from "./services/interviewReminderScheduler";
 import { startProbationNotificationScheduler } from "./services/probationNotificationScheduler";
-import { startItJobScheduler } from "./services/itJobScheduler";
+import { startEmailIdleWatcher } from "./services/emailIdleWatcher";
 import { startFeedScheduler } from "./services/feedScheduler";
 import initPassport from "./config/passport";
 import ENV_VARS from "./config/env.config";
@@ -103,7 +103,7 @@ mongoose
     initInterviewReminderScheduler();
     startProbationNotificationScheduler();
     startCheckInSweepScheduler();
-    startItJobScheduler();
+    startEmailIdleWatcher();
     startFeedScheduler();
   }).catch((err) => {
     console.error("DB connection error:", err);

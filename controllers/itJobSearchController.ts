@@ -7,6 +7,7 @@ import { UserDoc } from "../models/userModel";
 import { ingestJobEmails } from "../services/emailJobIngestService";
 import { ingestJsearchJobs } from "../services/jsearchIngestService";
 import { ingestFeedJobs } from "../services/feedIngestService";
+import { startBackgroundRun } from "../utils/backgroundRun";
 
 // The requirement-shaped fields a reviewer may edit and that get copied
 // into the Requirement on approval. Pipeline/classification metadata and
@@ -227,32 +228,26 @@ export const rejectSourcedJob = async (req: Request, res: Response) => {
   }
 };
 
-// POST /it-job-search/ingest/run  — manual trigger of the email ingest.
+// The ingests can take tens of seconds, so every trigger is non-blocking:
+// kick the work off in the background and return immediately. The client
+// auto-refreshes the queue, so results appear as they land. An in-memory
+// guard stops overlapping runs of the same kind.
+
+// POST /it-job-search/ingest/run  — manual email catch-up (inbox is also
+// watched in real time via IMAP IDLE, so this is just a fallback).
 export const runEmailIngest = async (_req: Request, res: Response) => {
-  try {
-    const summary = await ingestJobEmails();
-    res.status(200).json({ status: "success", data: summary });
-  } catch (error) {
-    res.status(500).json({ status: "failed", error: String(error) });
-  }
+  const data = startBackgroundRun("email-ingest", ingestJobEmails);
+  res.status(202).json({ status: "success", data });
 };
 
 // POST /it-job-search/ingest/jsearch  — manual trigger of the board sweep.
 export const runJsearchIngest = async (_req: Request, res: Response) => {
-  try {
-    const summary = await ingestJsearchJobs();
-    res.status(200).json({ status: "success", data: summary });
-  } catch (error) {
-    res.status(500).json({ status: "failed", error: String(error) });
-  }
+  const data = startBackgroundRun("jsearch-ingest", ingestJsearchJobs);
+  res.status(202).json({ status: "success", data });
 };
 
 // POST /it-job-search/ingest/feeds  — manual trigger of the free-feed pull.
 export const runFeedIngest = async (_req: Request, res: Response) => {
-  try {
-    const summary = await ingestFeedJobs();
-    res.status(200).json({ status: "success", data: summary });
-  } catch (error) {
-    res.status(500).json({ status: "failed", error: String(error) });
-  }
+  const data = startBackgroundRun("feed-ingest", ingestFeedJobs);
+  res.status(202).json({ status: "success", data });
 };

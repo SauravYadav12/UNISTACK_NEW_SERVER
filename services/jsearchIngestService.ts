@@ -221,48 +221,60 @@ export async function ingestJsearchJobs(): Promise<JsearchIngestSummary> {
     : "3days";
 
   // ── Fetch phase: gather listings across the role set, de-duped by id. ──
+  // Queries run in small concurrent batches so the sweep finishes in a
+  // fraction of the time of a fully sequential loop.
   const byId = new Map<string, NormalizedJob>();
   const queries = getQueries();
+  const CONCURRENCY = 4;
+  let configMissing = false;
   try {
-    for (const query of queries) {
-      try {
-        const result = await searchJobsOnJsearch({
-          query,
-          location: "Remote",
-          datePosted,
-          remoteOnly: true,
-        });
-        summary.queriesRun++;
-        for (const job of result.jobs) {
-          if (job.id && !byId.has(job.id)) byId.set(job.id, job);
-        }
-        if (typeof result.quota.remaining === "number") {
-          summary.quotaRemaining = result.quota.remaining;
-          if (result.quota.remaining <= 0) {
+    for (let i = 0; i < queries.length; i += CONCURRENCY) {
+      if (summary.quotaExceeded || configMissing) break;
+      const batch = queries.slice(i, i + CONCURRENCY);
+      const settled = await Promise.allSettled(
+        batch.map((query) =>
+          searchJobsOnJsearch({
+            query,
+            location: "Remote",
+            datePosted,
+            remoteOnly: true,
+          })
+        )
+      );
+      for (const s of settled) {
+        if (s.status === "fulfilled") {
+          summary.queriesRun++;
+          for (const job of s.value.jobs) {
+            if (job.id && !byId.has(job.id)) byId.set(job.id, job);
+          }
+          if (typeof s.value.quota.remaining === "number") {
+            summary.quotaRemaining = s.value.quota.remaining;
+            if (s.value.quota.remaining <= 0) summary.quotaExceeded = true;
+          }
+        } else {
+          const err = s.reason;
+          if (err instanceof JsearchQuotaExceededError) {
             summary.quotaExceeded = true;
-            break;
+            summary.quotaRemaining = 0;
+          } else if (err instanceof JsearchConfigError) {
+            configMissing = true;
+          } else {
+            // One bad query (upstream or otherwise) shouldn't abort the sweep.
+            summary.failed++;
+            console.error(
+              "[jsearch-ingest] query failed:",
+              (err as Error).message
+            );
           }
         }
-      } catch (err) {
-        if (err instanceof JsearchQuotaExceededError) {
-          summary.quotaExceeded = true;
-          summary.quotaRemaining = 0;
-          break;
-        }
-        if (err instanceof JsearchConfigError) {
-          summary.enabled = false;
-          return summary;
-        }
-        if (err instanceof JsearchUpstreamError) {
-          // One bad query shouldn't abort the sweep — skip and continue.
-          summary.failed++;
-          continue;
-        }
-        throw err;
       }
     }
   } catch (e) {
     console.error("[jsearch-ingest] fetch phase failed:", (e as Error).message);
+  }
+  if (configMissing) {
+    summary.enabled = false;
+    return summary;
   }
 
   const all = Array.from(byId.values());
