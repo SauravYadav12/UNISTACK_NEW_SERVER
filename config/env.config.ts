@@ -112,6 +112,24 @@ const ENV_VARS = {
   // Default 3days.
   IT_JOB_JSEARCH_DATE_POSTED: process.env.IT_JOB_JSEARCH_DATE_POSTED,
 
+  // IT Job Search — free remote feeds (Phase 3). Official public feeds/APIs,
+  // no scraping, no keys. Both a daily scheduler and a manual button.
+  // Comma list of feeds to pull: jobicy,remotive,weworkremotely,remoteok.
+  // Defaults to all four when unset.
+  IT_JOB_FEEDS: process.env.IT_JOB_FEEDS,
+  // Master switch for the daily feed scheduler (manual run always works).
+  IT_JOB_FEEDS_ENABLED: process.env.IT_JOB_FEEDS_ENABLED,
+  // Max new jobs created per feed run (throttles Claude cost). Default 80.
+  IT_JOB_FEEDS_PER_RUN_CAP: process.env.IT_JOB_FEEDS_PER_RUN_CAP,
+  // Scheduler interval in hours. Default 24 (keeps within Remotive's
+  // "max 4 pulls/day" guidance).
+  IT_JOB_FEEDS_INTERVAL_HOURS: process.env.IT_JOB_FEEDS_INTERVAL_HOURS,
+  // Per-feed tuning (optional): Jobicy industry slugs and Remotive category
+  // slugs (comma lists); WWR category feed slugs.
+  IT_JOB_FEEDS_JOBICY_INDUSTRIES: process.env.IT_JOB_FEEDS_JOBICY_INDUSTRIES,
+  IT_JOB_FEEDS_REMOTIVE_CATEGORIES: process.env.IT_JOB_FEEDS_REMOTIVE_CATEGORIES,
+  IT_JOB_FEEDS_WWR_FEEDS: process.env.IT_JOB_FEEDS_WWR_FEEDS,
+
   // Quo (OpenPhone) telephony integration. QUO_API_KEY is sent as the
   // raw `Authorization` header (no Bearer prefix) per Quo's docs.
   // QUO_WEBHOOK_SECRET is a random 32-byte hex value that we place into

@@ -6,6 +6,7 @@ import { nextParentReqID } from "./requirementController";
 import { UserDoc } from "../models/userModel";
 import { ingestJobEmails } from "../services/emailJobIngestService";
 import { ingestJsearchJobs } from "../services/jsearchIngestService";
+import { ingestFeedJobs } from "../services/feedIngestService";
 
 // The requirement-shaped fields a reviewer may edit and that get copied
 // into the Requirement on approval. Pipeline/classification metadata and
@@ -240,6 +241,16 @@ export const runEmailIngest = async (_req: Request, res: Response) => {
 export const runJsearchIngest = async (_req: Request, res: Response) => {
   try {
     const summary = await ingestJsearchJobs();
+    res.status(200).json({ status: "success", data: summary });
+  } catch (error) {
+    res.status(500).json({ status: "failed", error: String(error) });
+  }
+};
+
+// POST /it-job-search/ingest/feeds  — manual trigger of the free-feed pull.
+export const runFeedIngest = async (_req: Request, res: Response) => {
+  try {
+    const summary = await ingestFeedJobs();
     res.status(200).json({ status: "success", data: summary });
   } catch (error) {
     res.status(500).json({ status: "failed", error: String(error) });

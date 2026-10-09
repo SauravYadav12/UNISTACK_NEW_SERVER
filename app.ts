@@ -63,6 +63,7 @@ import { initPerformanceWarningScheduler } from "./services/performanceWarningSc
 import { initInterviewReminderScheduler } from "./services/interviewReminderScheduler";
 import { startProbationNotificationScheduler } from "./services/probationNotificationScheduler";
 import { startItJobScheduler } from "./services/itJobScheduler";
+import { startFeedScheduler } from "./services/feedScheduler";
 import initPassport from "./config/passport";
 import ENV_VARS from "./config/env.config";
 const app = express();
@@ -103,6 +104,7 @@ mongoose
     startProbationNotificationScheduler();
     startCheckInSweepScheduler();
     startItJobScheduler();
+    startFeedScheduler();
   }).catch((err) => {
     console.error("DB connection error:", err);
   });
