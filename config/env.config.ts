@@ -81,8 +81,24 @@ const ENV_VARS = {
   FRONTEND_URL: process.env.FRONTEND_URL,
   CLAUDE_API_KEY: process.env.CLAUDE_API_KEY,
   CLAUDE_MODEL: process.env.CLAUDE_MODEL,
+  // Optional cheaper model for the lightweight job classifier; falls back
+  // to CLAUDE_MODEL (the extraction model) when unset.
+  CLASSIFIER_MODEL: process.env.CLASSIFIER_MODEL,
   JSEARCH_RAPIDAPI_KEY: process.env.JSEARCH_RAPIDAPI_KEY,
   JSEARCH_RAPIDAPI_HOST: process.env.JSEARCH_RAPIDAPI_HOST,
+
+  // IT Job Search — dedicated Gmail inbox read over IMAP with an App
+  // Password (2-Step Verification required). Read-only; no OAuth app.
+  GMAIL_USER: process.env.GMAIL_USER,
+  GMAIL_APP_PASSWORD: process.env.GMAIL_APP_PASSWORD,
+  GMAIL_IMAP_HOST: process.env.GMAIL_IMAP_HOST || "imap.gmail.com",
+  // Master switch for the scheduled email ingestion loop.
+  IT_JOB_INGEST_ENABLED: process.env.IT_JOB_INGEST_ENABLED,
+  // Only emails from the last N days are processed (the inbox has a huge
+  // historical backlog we must NOT grind through). Default 2.
+  IT_JOB_LOOKBACK_DAYS: process.env.IT_JOB_LOOKBACK_DAYS,
+  // Max new jobs extracted per run (throttles Claude cost). Default 80.
+  IT_JOB_PER_RUN_CAP: process.env.IT_JOB_PER_RUN_CAP,
 
   // Quo (OpenPhone) telephony integration. QUO_API_KEY is sent as the
   // raw `Authorization` header (no Bearer prefix) per Quo's docs.

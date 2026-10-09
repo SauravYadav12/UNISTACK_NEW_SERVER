@@ -47,6 +47,7 @@ import { invoiceEmailSettingsRoute } from "./routes/invoiceEmailSettingsRoute";
 import { performanceRoute } from "./routes/performanceRoute";
 import { notificationRoute } from "./routes/notificationRoute";
 import { jobBoardRoute } from "./routes/jobBoardRoutes";
+import { itJobSearchRoute } from "./routes/itJobSearchRoute";
 import { probationRoute } from "./routes/probationRoute";
 import { onboardingRoute } from "./routes/onboardingRoute";
 import { publicOnboardingRoute } from "./routes/publicOnboardingRoute";
@@ -61,6 +62,7 @@ import { initLeaveBalanceSystem } from "./services/leaveBalanceScheduler";
 import { initPerformanceWarningScheduler } from "./services/performanceWarningScheduler";
 import { initInterviewReminderScheduler } from "./services/interviewReminderScheduler";
 import { startProbationNotificationScheduler } from "./services/probationNotificationScheduler";
+import { startItJobScheduler } from "./services/itJobScheduler";
 import initPassport from "./config/passport";
 import ENV_VARS from "./config/env.config";
 const app = express();
@@ -100,6 +102,7 @@ mongoose
     initInterviewReminderScheduler();
     startProbationNotificationScheduler();
     startCheckInSweepScheduler();
+    startItJobScheduler();
   }).catch((err) => {
     console.error("DB connection error:", err);
   });
@@ -134,6 +137,7 @@ app.use("/invoice-email-settings", invoiceEmailSettingsRoute);
 app.use("/performance", performanceRoute);
 app.use("/notifications", notificationRoute);
 app.use("/job-search", jobBoardRoute);
+app.use("/it-job-search", itJobSearchRoute);
 app.use("/probation", probationRoute);
 app.use("/onboarding", onboardingRoute);
 // Public, no-auth onboarding surface — token in URL is the credential.

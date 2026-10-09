@@ -241,7 +241,7 @@ export const getAllRrequirements = async (req: Request, res: Response) => {
  * `REQ-03-B` has a newer `createdAt` than all parents but a lower top
  * number, so the util would hand back `REQ-04` — which already exists.
  */
-async function nextParentReqID(): Promise<string> {
+export async function nextParentReqID(): Promise<string> {
   const rows = await RequirementModel.find({}, { reqID: 1 }).lean();
   let max = 0;
   for (const r of rows) {
