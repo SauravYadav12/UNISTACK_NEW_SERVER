@@ -47,7 +47,9 @@ import { invoiceEmailSettingsRoute } from "./routes/invoiceEmailSettingsRoute";
 import { performanceRoute } from "./routes/performanceRoute";
 import { notificationRoute } from "./routes/notificationRoute";
 import { jobBoardRoute } from "./routes/jobBoardRoutes";
-import { itJobSearchRoute } from "./routes/itJobSearchRoute";
+// IT Job Search disabled — route unmounted (see app.use below). Keep the
+// import commented so nothing reaches the ingest endpoints / Claude.
+// import { itJobSearchRoute } from "./routes/itJobSearchRoute";
 import { probationRoute } from "./routes/probationRoute";
 import { onboardingRoute } from "./routes/onboardingRoute";
 import { publicOnboardingRoute } from "./routes/publicOnboardingRoute";
@@ -62,8 +64,11 @@ import { initLeaveBalanceSystem } from "./services/leaveBalanceScheduler";
 import { initPerformanceWarningScheduler } from "./services/performanceWarningScheduler";
 import { initInterviewReminderScheduler } from "./services/interviewReminderScheduler";
 import { startProbationNotificationScheduler } from "./services/probationNotificationScheduler";
-import { startItJobScheduler } from "./services/itJobScheduler";
-import { startFeedScheduler } from "./services/feedScheduler";
+// IT Job Search disabled — the email poller and feed scheduler both call the
+// Claude model, so their start calls are commented out below. Imports kept
+// commented to avoid unused-import errors.
+// import { startItJobScheduler } from "./services/itJobScheduler";
+// import { startFeedScheduler } from "./services/feedScheduler";
 import initPassport from "./config/passport";
 import ENV_VARS from "./config/env.config";
 const app = express();
@@ -103,8 +108,10 @@ mongoose
     initInterviewReminderScheduler();
     startProbationNotificationScheduler();
     startCheckInSweepScheduler();
-    startItJobScheduler();
-    startFeedScheduler();
+    // IT Job Search disabled — these ran the inbox ingest and the remote-feed
+    // pull, both of which call the Claude model. Left off intentionally.
+    // startItJobScheduler();
+    // startFeedScheduler();
   }).catch((err) => {
     console.error("DB connection error:", err);
   });
@@ -139,7 +146,9 @@ app.use("/invoice-email-settings", invoiceEmailSettingsRoute);
 app.use("/performance", performanceRoute);
 app.use("/notifications", notificationRoute);
 app.use("/job-search", jobBoardRoute);
-app.use("/it-job-search", itJobSearchRoute);
+// IT Job Search disabled — route unmounted so no ingest/approve endpoint is
+// reachable and nothing connects to the Claude model.
+// app.use("/it-job-search", itJobSearchRoute);
 app.use("/probation", probationRoute);
 app.use("/onboarding", onboardingRoute);
 // Public, no-auth onboarding surface — token in URL is the credential.
