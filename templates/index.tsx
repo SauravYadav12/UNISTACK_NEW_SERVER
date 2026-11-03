@@ -19,6 +19,7 @@ import {
   OnboardingRejectedEmail,
   OnboardingRejectedEmailProps,
 } from "./email/OnboardingEmails";
+import { PipEmail, PipEmailProps } from "./email/PipEmail";
 
 export function getLeaveRequestTemplate(leave: ILeave) {
     return render(<LeaveRequestEmail leave={leave} />);
@@ -62,4 +63,8 @@ export function getOfferAcceptedTemplate(p: OfferAcceptedEmailProps) {
 
 export function getOnboardingRejectedTemplate(p: OnboardingRejectedEmailProps) {
   return render(<OnboardingRejectedEmail {...p} />);
+}
+
+export function getPipTemplate(p: PipEmailProps) {
+  return render(<PipEmail {...p} />);
 }

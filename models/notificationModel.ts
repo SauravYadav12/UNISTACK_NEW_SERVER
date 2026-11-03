@@ -67,6 +67,10 @@ const NotificationLinkSchema = new Schema<NotificationLink>(
         "project",
         "timesheet",
         "filter",
+        // employee-management covers probation + PIP review notifications
+        // (the TS union already lists it; the schema enum was missing it,
+        // which silently blocked those rows from validating).
+        "employee-management",
       ],
       required: true,
     },
