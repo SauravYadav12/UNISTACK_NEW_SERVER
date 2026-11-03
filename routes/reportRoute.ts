@@ -3,6 +3,7 @@ import {
   getDashboardReport,
   getInterviewReport,
   getMarketingReport,
+  getMarketingPositions,
   getSupportReport,
 } from "../controllers/reportController";
 import passport from "passport";
@@ -17,6 +18,11 @@ reportRoute.get(
   "/marketing",
   passport.authenticate("jwt", { session: false }),
   getMarketingReport
+);
+reportRoute.get(
+  "/marketing/positions",
+  passport.authenticate("jwt", { session: false }),
+  getMarketingPositions
 );
 reportRoute.get(
   "/interview",
