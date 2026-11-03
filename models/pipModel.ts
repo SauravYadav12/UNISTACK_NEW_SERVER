@@ -9,14 +9,21 @@ import { PIP_REASONS, PipReason, PIP_DAYS } from "../utils/pip";
  *   draft  → saved but not sent; no dates yet, not tracked.
  *   active → email sent; startDate/endDate set; the scheduler tracks it and
  *            notifies super-admins once endDate elapses.
- *   successful | failed → resolved by a reviewer (terminal).
+ *   successful | failed | removed → resolved (terminal). `removed` is a
+ *            super-admin pulling the employee off the plan: the account stays
+ *            active (unlike `failed`, which deactivates it).
  *
  * `endDate` is the EFFECTIVE end (moves forward on each extension) and is
  * what the completion scheduler queries; `originalEndDate` is frozen at the
  * initial 30-day mark for reference.
  */
 
-export type PipStatus = "draft" | "active" | "successful" | "failed";
+export type PipStatus =
+  | "draft"
+  | "active"
+  | "successful"
+  | "failed"
+  | "removed";
 
 export interface PipExtension {
   days: number;
@@ -51,6 +58,10 @@ export interface PipDoc extends Document {
   extensionDays: number; // cumulative
   extensions: PipExtension[];
   sentAt?: Date;
+  // Resend audit — super-admin can re-send the same email without changing
+  // any dates. `sentAt`/dates stay frozen; these just track the resends.
+  resendCount: number;
+  lastResentAt?: Date;
   // Set when the completion scheduler has notified super-admins for the
   // CURRENT endDate. Cleared on extension so the new window re-notifies.
   completionNotifiedAt?: Date;
@@ -92,7 +103,7 @@ const pipSchema = new Schema<PipDoc>(
 
     status: {
       type: String,
-      enum: ["draft", "active", "successful", "failed"],
+      enum: ["draft", "active", "successful", "failed", "removed"],
       default: "draft",
       index: true,
     },
@@ -104,6 +115,8 @@ const pipSchema = new Schema<PipDoc>(
     extensionDays: { type: Number, default: 0 },
     extensions: { type: [pipExtensionSchema], default: [] },
     sentAt: { type: Date },
+    resendCount: { type: Number, default: 0 },
+    lastResentAt: { type: Date },
     completionNotifiedAt: { type: Date },
 
     resolutionNote: { type: String, trim: true },

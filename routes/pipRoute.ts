@@ -6,7 +6,7 @@
  */
 import express from "express";
 import passport from "passport";
-import { anyRoleGuard } from "../middleware/adminGuard";
+import { anyRoleGuard, roleGuard } from "../middleware/adminGuard";
 import { UserRole } from "../enums/UserEnum";
 import {
   previewPipDraft,
@@ -17,6 +17,8 @@ import {
   sendPip,
   extendPip,
   resolvePip,
+  resendPip,
+  removePip,
   deletePip,
 } from "../controllers/pipController";
 
@@ -26,6 +28,8 @@ const pipAccess = anyRoleGuard(
   UserRole.SuperAdmin,
   UserRole.Hr
 );
+// Resend + remove are reserved for super-admins only.
+const superAdminOnly = roleGuard(UserRole.SuperAdmin);
 
 const pipRoute = express.Router();
 
@@ -37,6 +41,8 @@ pipRoute.patch("/:id", auth, pipAccess, updatePip);
 pipRoute.post("/:id/send", auth, pipAccess, sendPip);
 pipRoute.post("/:id/extend", auth, pipAccess, extendPip);
 pipRoute.post("/:id/resolve", auth, pipAccess, resolvePip);
+pipRoute.post("/:id/resend", auth, superAdminOnly, resendPip);
+pipRoute.post("/:id/remove", auth, superAdminOnly, removePip);
 pipRoute.delete("/:id", auth, pipAccess, deletePip);
 
 export { pipRoute };

@@ -102,6 +102,30 @@ export function buildDefaultPipEmail(input: DefaultPipEmailInput): {
   return { subject, body };
 }
 
+/**
+ * Default body for the PIP-removed email — the employee has been taken off
+ * the plan by a super-admin. This is NOT a termination (the account stays
+ * active); the tone is a clean close-out, not a warning.
+ */
+export function buildPipRemovedEmail(input: {
+  employeeName: string;
+}): { subject: string; body: string } {
+  const name = input.employeeName || "Employee";
+  const subject = `Performance Improvement Plan – Update`;
+  const body = [
+    `Dear ${name},`,
+    ``,
+    `This letter is to inform you that you have been removed from the Performance Improvement Plan (PIP) that you were previously placed on. The plan is now closed and no further action is required from you in connection with it.`,
+    ``,
+    `We appreciate your efforts and encourage you to maintain consistent, positive performance going forward. If you have any questions, please feel free to reach out to the HR team.`,
+    ``,
+    `Regards,`,
+    `HR Team`,
+    `Unicodez Softcorp Private Limited`,
+  ].join("\n");
+  return { subject, body };
+}
+
 /** Default body for the PIP-failed / termination outcome email. */
 export function buildPipFailedEmail(input: {
   employeeName: string;
