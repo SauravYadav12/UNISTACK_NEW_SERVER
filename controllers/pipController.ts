@@ -16,6 +16,7 @@ import {
   computePipEndDate,
   buildDefaultPipEmail,
   buildPipFailedEmail,
+  buildPipRemovedEmail,
 } from "../utils/pip";
 
 // ── helpers ──────────────────────────────────────────────────────────
@@ -354,6 +355,87 @@ export const resolvePip = async (req: Request, res: Response) => {
       } catch (e) {
         console.error("[pip] outcome email failed:", (e as Error).message);
       }
+    }
+
+    res.status(200).json({ data: pip });
+  } catch (error) {
+    res.status(500).json({ status: "failed", error: String(error) });
+  }
+};
+
+// POST /pip/:id/resend — super-admin only. Re-send the SAME initiation email
+// (subject/body + same CC) to the employee. Deliberately does NOT touch the
+// PIP's dates or status — the window keeps running unchanged; only the resend
+// audit (count + timestamp) is updated.
+export const resendPip = async (req: Request, res: Response) => {
+  try {
+    const pip = await PipModel.findById(req.params.id);
+    if (!pip) {
+      res.status(404).json({ status: "failed", error: "Not found" });
+      return;
+    }
+    if (pip.status !== "active") {
+      res.status(409).json({ status: "failed", error: `Only an active PIP's email can be resent (this one is ${pip.status}).` });
+      return;
+    }
+    try {
+      await sendInitiationEmail(pip);
+    } catch (e) {
+      res.status(502).json({ status: "failed", error: `Could not resend the PIP email: ${String((e as Error).message || e)}` });
+      return;
+    }
+    pip.resendCount = (pip.resendCount || 0) + 1;
+    pip.lastResentAt = new Date();
+    await pip.save();
+    res.status(200).json({ data: pip });
+  } catch (error) {
+    res.status(500).json({ status: "failed", error: String(error) });
+  }
+};
+
+// POST /pip/:id/remove  { note? } — super-admin only. Take the employee OFF
+// the plan: close the PIP as "removed" (the account STAYS active — unlike a
+// failed PIP) and email them that they've been removed. Active PIPs only.
+export const removePip = async (req: Request, res: Response) => {
+  try {
+    const me = req.user as UserDoc;
+    const note = req.body?.note ? String(req.body.note).trim() : undefined;
+    const pip = await PipModel.findById(req.params.id);
+    if (!pip) {
+      res.status(404).json({ status: "failed", error: "Not found" });
+      return;
+    }
+    if (pip.status !== "active") {
+      res.status(409).json({ status: "failed", error: `Only an active PIP can be removed (this one is ${pip.status}).` });
+      return;
+    }
+
+    pip.status = "removed";
+    pip.resolutionNote = note;
+    pip.resolvedAt = new Date();
+    pip.resolvedByRef = me._id as Types.ObjectId;
+    await pip.save();
+
+    // Tell the employee they've been taken off the PIP (non-fatal if it fails).
+    try {
+      if (pip.employeeEmail) {
+        const { subject, body } = buildPipRemovedEmail({
+          employeeName: pip.employeeName,
+        });
+        const html = await getPipTemplate({
+          employeeName: pip.employeeName,
+          body,
+        });
+        await sendMail({
+          from: mailSenders.onboarding.from,
+          replyTo: mailSenders.onboarding.replyTo,
+          to: pip.employeeEmail,
+          subject,
+          html,
+        });
+      }
+    } catch (e) {
+      console.error("[pip] removal email failed:", (e as Error).message);
     }
 
     res.status(200).json({ data: pip });
