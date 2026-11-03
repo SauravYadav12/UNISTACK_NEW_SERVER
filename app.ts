@@ -64,6 +64,8 @@ import { initLeaveBalanceSystem } from "./services/leaveBalanceScheduler";
 import { initPerformanceWarningScheduler } from "./services/performanceWarningScheduler";
 import { initInterviewReminderScheduler } from "./services/interviewReminderScheduler";
 import { startProbationNotificationScheduler } from "./services/probationNotificationScheduler";
+import { startPipNotificationScheduler } from "./services/pipNotificationScheduler";
+import { pipRoute } from "./routes/pipRoute";
 // IT Job Search disabled — the email poller and feed scheduler both call the
 // Claude model, so their start calls are commented out below. Imports kept
 // commented to avoid unused-import errors.
@@ -107,6 +109,7 @@ mongoose
     initPerformanceWarningScheduler();
     initInterviewReminderScheduler();
     startProbationNotificationScheduler();
+    startPipNotificationScheduler();
     startCheckInSweepScheduler();
     // IT Job Search disabled — these ran the inbox ingest and the remote-feed
     // pull, both of which call the Claude model. Left off intentionally.
@@ -150,6 +153,7 @@ app.use("/job-search", jobBoardRoute);
 // reachable and nothing connects to the Claude model.
 // app.use("/it-job-search", itJobSearchRoute);
 app.use("/probation", probationRoute);
+app.use("/pip", pipRoute);
 app.use("/onboarding", onboardingRoute);
 // Public, no-auth onboarding surface — token in URL is the credential.
 app.use("/p/onboarding", publicOnboardingRoute);
