@@ -15,10 +15,14 @@ export interface RequirementDoc extends Omit<IRequirement, '_id' | 'appliedForRe
   // never overwritten. Scoring filters leaderboard windows by these
   // timestamps so a point awarded in May stays in May's leaderboard even
   // if the req later moves further forward.
+  _perfInProgressAt?: Date;
   _perfSubmittedAt?: Date;
   _perfInterviewedAt?: Date;
   _perfProjectActiveAt?: Date;
   _perfProjectInactiveAt?: Date;
+  // Off-ramp: stamped once when the req is first Cancelled. Used by the
+  // marketing report to date a cancelled position by when it was cancelled.
+  _perfCancelledAt?: Date;
   // ── Penalty timestamps — set by the daily scheduler when a threshold is
   //    first crossed. Never unset, so penalties stay locked in for the
   //    period in which they fired even after the marketer/support
@@ -204,10 +208,12 @@ const requirementSchema = new mongoose.Schema<RequirementDoc>(
       index: true,
     },
     // ── Performance event timestamps (see comment in RequirementDoc above) ──
+    _perfInProgressAt: { type: Date },
     _perfSubmittedAt: { type: Date },
     _perfInterviewedAt: { type: Date },
     _perfProjectActiveAt: { type: Date },
     _perfProjectInactiveAt: { type: Date },
+    _perfCancelledAt: { type: Date },
     _perfStaleSubmissionFiredAt: { type: Date },
     _perfUnworkedPenaltyFiredAt: { type: Date },
     _perfUnprogressedPenaltyFiredAt: { type: Date },

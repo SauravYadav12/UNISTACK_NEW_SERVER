@@ -97,6 +97,12 @@ export async function stampReqStatusMilestones(
   if (reqStatus === "Project Inactive") {
     await setOnceOnReq(reqId, "_perfProjectInactiveAt", now);
   }
+  // Off-ramp — not part of the forward ladder, so stamp only on the exact
+  // "Cancelled" status (set-once; lets the marketing report date a cancelled
+  // position by when it was cancelled).
+  if (reqStatus === "Cancelled") {
+    await setOnceOnReq(reqId, "_perfCancelledAt", now);
+  }
 }
 
 /**

@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { FilterQuery } from "mongoose";
 import { RequirementDoc, RequirementModel } from "../models/requirementModel";
 import {
   InterviewReport,
@@ -21,6 +22,43 @@ const reqStatusList: RequirementStatus[] = [
   "Project Inactive",
   "Cancelled",
 ];
+
+// ── Marketing report (activity-by-status-date) ──────────────────────────
+// The marketing report shows a position ONCE, in its CURRENT status, dated
+// by when it entered that status (its most recent status change). Each of
+// these four statuses has a set-once `_perf*At` stamp that records exactly
+// that moment; the report filters/dates on the stamp for the position's
+// current status. (No stored timestamp exists for older data, so this is
+// accurate going forward — see getMarketingReport.) This is used ONLY by the
+// reports; no other view's date behavior changes.
+const marketingReportStatusMeta: {
+  status: RequirementStatus;
+  stamp: keyof RequirementDoc;
+}[] = [
+  { status: "Submission in progress", stamp: "_perfInProgressAt" },
+  { status: "Submitted", stamp: "_perfSubmittedAt" },
+  { status: "Interviewed", stamp: "_perfInterviewedAt" },
+  { status: "Cancelled", stamp: "_perfCancelledAt" },
+];
+const marketingReportStatusList: RequirementStatus[] =
+  marketingReportStatusMeta.map((m) => m.status);
+
+/**
+ * Build the `$or` that selects positions whose CURRENT status is one of the
+ * four and whose matching status-date stamp falls inside [from, to].
+ * Optionally narrow to a single status (for the drill-down list).
+ */
+const marketingStatusDateOr = (
+  from: Date,
+  to: Date,
+  status?: string
+): FilterQuery<RequirementDoc>[] =>
+  marketingReportStatusMeta
+    .filter((m) => !status || m.status === status)
+    .map(({ status: s, stamp }) => ({
+      reqStatus: s,
+      [stamp]: { $gte: from, $lte: to },
+    })) as FilterQuery<RequirementDoc>[];
 export const interviewStatusList: InterviewStatus[] = [
   "Interview Confirm",
   "Interview Tentative",
@@ -85,52 +123,39 @@ const sortSupportRecords = (
   return positionSorted;
 };
 
-const sortMarketingRecords = (
-  allPositions: RequirementDoc[],
-  parentIdsWithChildrenOverride?: Set<string>,
+/**
+ * Group the marketing report's status-dated positions by marketer. Each
+ * position is already pre-filtered to exactly one of the four statuses (its
+ * current status, stamped in-window), so it lands in exactly one bucket and
+ * `totalAssigned` is the sum of the four columns (no double-counting).
+ */
+const sortMarketingByStatusDate = (
+  positions: RequirementDoc[],
+  parentIdsWithChildren: Set<string>
 ) => {
   const sortedRecords: MarketingReport[] = [];
-
-  // Defensive: if a legacy parent still carries an `assignedToRef` AND has
-  // children, skip the parent — its children will contribute their real
-  // per-marketer counts. Without this, the parent would double-count into
-  // whatever marketer it was legacy-assigned to.
-  //
-  // Prefer the caller-provided set (built from a global distinct query so it
-  // catches children outside this result window); fall back to an in-function
-  // pass when the caller doesn't supply one.
-  let parentIdsWithChildren = parentIdsWithChildrenOverride;
-  if (!parentIdsWithChildren) {
-    parentIdsWithChildren = new Set<string>();
-    for (const r of allPositions) {
-      if (r.parentReqID) parentIdsWithChildren.add(r.parentReqID);
-    }
-  }
-
-  for (const req of allPositions) {
+  for (const req of positions) {
+    // Skip legacy parents that have real child assignments — their children
+    // carry the per-marketer counts.
     if (!req.parentReqID && parentIdsWithChildren.has(req.reqID || "")) continue;
-    const i = sortedRecords.findIndex((e) => e.name === req.assignedTo);
 
+    const i = sortedRecords.findIndex((e) => e.name === req.assignedTo);
     const info: MarketingReport = i > -1 ? sortedRecords[i] : {};
 
     info.name = req.assignedTo;
     info.id = req.assignedToRef?.toString();
     info.totalAssigned = (info.totalAssigned || 0) + 1;
 
-    for (const status of reqStatusList) {
+    for (const status of marketingReportStatusList) {
       if (status === req.reqStatus) {
         info[status] = (info[status] || 0) + 1;
         break;
       }
     }
 
-    if (i > -1) {
-      sortedRecords[i] = info;
-    } else {
-      sortedRecords.push(info);
-    }
+    if (i > -1) sortedRecords[i] = info;
+    else sortedRecords.push(info);
   }
-
   return sortedRecords;
 };
 
@@ -212,25 +237,27 @@ export const getMarketingReport = async (req: Request, res: Response) => {
     const { from, to } = myDate(fromDate, toDate);
     const marketing = await UserModel.find({ role: UserRole.Marketing, active: true });
     const ids = marketing.map((s) => s._id);
+
+    // A position shows under the date it ENTERED its current status (not when
+    // it was created): current reqStatus ∈ the four buckets AND the matching
+    // `_perf*At` stamp falls in [from, to]. Accurate going forward; positions
+    // whose status changed before stamping existed simply don't appear until
+    // they next move. This date behavior is REPORTS-ONLY.
     const positions = await RequirementModel.find({
-      createdAt: {
-        $gte: from,
-        $lte: to,
-      },
       assignedToRef: { $in: ids },
-    });
+      $or: marketingStatusDateOr(from, to),
+    } as FilterQuery<RequirementDoc>);
 
     // Defensive: build the full set of parentReqIDs that have children at
-    // all (not just in this result set) so `sortMarketingRecords` can skip
-    // legacy parents that still carry an `assignedToRef` alongside real
-    // child assignments.
+    // all (not just in this result set) so the grouping can skip legacy
+    // parents that still carry an `assignedToRef` alongside real children.
     const parentIdsWithChildren = new Set<string>(
       (await RequirementModel.distinct("parentReqID", {
         parentReqID: { $exists: true, $ne: "" },
       })) as string[]
     );
 
-    const assigned = sortMarketingRecords(positions, parentIdsWithChildren);
+    const assigned = sortMarketingByStatusDate(positions, parentIdsWithChildren);
     const report = pushAccountsWithZeroRecords(assigned, marketing);
     res.status(200).json({
       data: report,
@@ -240,6 +267,54 @@ export const getMarketingReport = async (req: Request, res: Response) => {
     res.status(400).json({
       error,
     });
+  }
+};
+
+// GET /reports/marketing/positions?assignedToRef=&status=&fromDate=&toDate=
+// The list of positions behind a clicked number in the marketing report:
+// the same "current status + its stamp in-window" filter for ONE marketer,
+// optionally narrowed to a single status (omit `status` → the person's total
+// across all four). Powers the in-app drill-down drawer.
+export const getMarketingPositions = async (req: Request, res: Response) => {
+  try {
+    const { fromDate, toDate, assignedToRef, status } = req.query as Record<
+      string,
+      string
+    >;
+    const { from, to } = myDate(fromDate, toDate);
+
+    if (!assignedToRef) {
+      res.status(400).json({ error: "assignedToRef is required" });
+      return;
+    }
+    if (status && !marketingReportStatusList.includes(status as RequirementStatus)) {
+      res.status(400).json({ error: "Invalid status" });
+      return;
+    }
+
+    // Skip legacy parents that have children (consistent with the counts).
+    const parentIdsWithChildren = new Set<string>(
+      (await RequirementModel.distinct("parentReqID", {
+        parentReqID: { $exists: true, $ne: "" },
+      })) as string[]
+    );
+
+    const positions = await RequirementModel.find({
+      assignedToRef,
+      $or: marketingStatusDateOr(from, to, status),
+    } as FilterQuery<RequirementDoc>)
+      .populate("appliedForRef", "firstName lastName")
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    const data = (positions as unknown as RequirementDoc[]).filter(
+      (p) => p.parentReqID || !parentIdsWithChildren.has(p.reqID || "")
+    );
+
+    res.status(200).json({ data });
+  } catch (error) {
+    console.log(error);
+    res.status(400).json({ error });
   }
 };
 
