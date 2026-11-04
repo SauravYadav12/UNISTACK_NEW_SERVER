@@ -6,8 +6,10 @@ import {
   getHolidayNoticeSettings,
   HolidayNoticeSettingsDoc,
 } from "../models/holidayNoticeSettingsModel";
-import { getHolidayNoticeTemplate } from "../templates";
+import { getHolidayNoticeTemplate, getGenericNoticeTemplate } from "../templates";
 import { HolidayNoticeVariables } from "../templates/email/HolidayNotice";
+import { GenericNoticeVariables } from "../templates/email/GenericNotice";
+import { BRAND } from "../templates/email/shared-styles";
 import { sendMail } from "../utils/mailTransporter";
 import ENV_VARS from "../config/env.config";
 import { mailSenders } from "../utils/mailSenders";
@@ -200,6 +202,63 @@ export async function sendHolidayNoticesForToday() {
   }
 
   return { enabled: true, holidays: groups.size, emails: totalEmails };
+}
+
+/**
+ * Send a one-off "holiday cancelled" email when an admin removes a holiday
+ * from the Holidays tab. Recipients mirror the heads-up notice audience: a
+ * country-specific holiday notifies that region's active staff, a company-wide
+ * (ALL) holiday notifies every active employee. Best-effort — a failure on one
+ * recipient is logged, never thrown, so one bad address can't abort the rest.
+ * Called fire-and-forget from the delete controller after it has already
+ * responded, so SMTP latency never holds up the removal.
+ */
+export async function sendHolidayCancelledNotice(holiday: {
+  name?: string;
+  fromDate: string;
+  toDate?: string;
+  country?: string;
+}): Promise<{ emails: number }> {
+  const country = (holiday.country || "ALL") as "IN" | "US" | "ALL";
+  const recipients = await recipientsForCountry(country);
+  if (!recipients.length) return { emails: 0 };
+
+  const holidayName = holiday.name || "Public holiday";
+  const dateStr =
+    holiday.toDate && holiday.toDate !== holiday.fromDate
+      ? `${prettyDate(holiday.fromDate)} – ${prettyDate(holiday.toDate)}`
+      : prettyDate(holiday.fromDate);
+  const subject = `Holiday cancelled: ${holidayName} (${dateStr})`;
+
+  let emails = 0;
+  for (const r of recipients) {
+    const vars: GenericNoticeVariables = {
+      subject,
+      heading: "Holiday cancelled",
+      bodyLead: `Hi ${r.name},\nPlease note that a holiday previously marked on our calendar has been cancelled.`,
+      bodyDetails: `${holidayName}\n${dateStr}\n\nThe office will remain open and operate as per its usual timing on this day. Please plan to be available for work as normal.`,
+      signOff: `Warm regards,\nHR\n${COMPANY_NAME}`,
+      tag: "Holiday cancelled",
+      tagBg: BRAND.error,
+    };
+    try {
+      const html = await getGenericNoticeTemplate(vars);
+      await sendMail({
+        from: mailSenders.holiday.from,
+        replyTo: mailSenders.holiday.replyTo,
+        to: r.email,
+        subject,
+        html,
+      });
+      emails++;
+    } catch (e) {
+      console.error(
+        `[holiday-cancel] Failed to send to ${r.email} for ${holidayName}:`,
+        (e as Error).message,
+      );
+    }
+  }
+  return { emails };
 }
 
 export { buildVars, prettyDate, countryLabel, substitute };
