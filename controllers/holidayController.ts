@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { handleAttendanceDateQueryParams } from "../utils/utils";
 import { checkHolidayOverlap, HolidayModel } from "../models/holidayModel";
+import { sendHolidayCancelledNotice } from "../services/holidayNoticeService";
 
 export const getHolidays = async (req: Request, res: Response) => {
   try {
@@ -92,8 +93,22 @@ export const updateHoliday = async (req: Request, res: Response) => {
 
 export async function deleteHoliday(req: Request, res: Response) {
   try {
-    await HolidayModel.findByIdAndDelete(req.params.id);
+    // Opt-in from the remove dialog's "notify all staff" toggle.
+    const notify = req.query.notify === "true";
+    // Grab the doc as we delete it so the email can describe which holiday.
+    const holiday = await HolidayModel.findByIdAndDelete(req.params.id).lean();
     res.json({ message: "deleted", status: true });
+
+    if (notify && holiday) {
+      // Fire-and-forget: the removal is already confirmed to the client, so
+      // SMTP latency (one email per active employee) never blocks the response.
+      sendHolidayCancelledNotice(holiday).catch((e) =>
+        console.error(
+          "[holiday-cancel] notification failed:",
+          (e as Error).message,
+        ),
+      );
+    }
   } catch (error) {
     res.status(500).json({ error: error });
   }
